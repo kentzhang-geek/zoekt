@@ -44,7 +44,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
-	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 
 	"github.com/opentracing/opentracing-go"
@@ -375,7 +374,7 @@ func addProxyHandler(mux *http.ServeMux, socket string) {
 func shutdownSignalChan(maxReads int) <-chan os.Signal {
 	c := make(chan os.Signal, maxReads)
 	signal.Notify(c, os.Interrupt) // terminal C-c and goreman
-	signal.Notify(c, unix.SIGTERM) // Kubernetes
+	signal.Notify(c, os.Interrupt) // Kubernetes
 	return c
 }
 

@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build linux || darwin
-
 package index
 
 import (
 	"fmt"
 	"log"
 	"os"
+    "syscall"
+    "unsafe"
 
-	"golang.org/x/sys/unix"
 )
 
 type mmapedIndexFile struct {
 	name string
 	size uint32
+    hMap syscall.Handle
 	data []byte
 }
 
@@ -46,9 +46,12 @@ func (f *mmapedIndexFile) Size() (uint32, error) {
 }
 
 func (f *mmapedIndexFile) Close() {
-	if err := unix.Munmap(f.data); err != nil {
+    if err := syscall.UnmapViewOfFile(uintptr(unsafe.Pointer(&f.data[0]))); err != nil {
 		log.Printf("WARN failed to Munmap %s: %v", f.name, err)
-	}
+    }
+    if err := syscall.CloseHandle(f.hMap); err != nil {
+		log.Printf("WARN failed to Munmap %s: %v", f.name, err)
+    }
 }
 
 // NewIndexFile returns a new index file. The index file takes
@@ -70,8 +73,18 @@ func NewIndexFile(f *os.File) (IndexFile, error) {
 		size: uint32(sz),
 	}
 
-	rounded := (r.size + 4095) &^ 4095
-	r.data, err = unix.Mmap(int(f.Fd()), 0, int(rounded), unix.PROT_READ, unix.MAP_SHARED)
+    hMap, err := syscall.CreateFileMapping(syscall.Handle(f.Fd()), nil, syscall.PAGE_READONLY, 0, uint32(r.size), nil)
+    if err != nil {
+        return nil, err
+    }
+    r.hMap = hMap
+    addr, err := syscall.MapViewOfFile(r.hMap, syscall.FILE_MAP_READ, 0, 0, uintptr(r.size))
+    if err != nil {
+        syscall.CloseHandle(hMap)
+        return nil, err
+    }
+
+    r.data = (*[1 << 30]byte)(unsafe.Pointer(addr))[:r.size]
 	if err != nil {
 		return nil, err
 	}

@@ -40,7 +40,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/go-enry/go-enry/v2"
 	"github.com/rs/xid"
-	"golang.org/x/sys/unix"
 
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/internal/ctags"
@@ -1109,6 +1108,6 @@ type DocumentSection struct {
 var umask os.FileMode
 
 func init() {
-	umask = os.FileMode(unix.Umask(0))
-	unix.Umask(int(umask))
+	// umask = os.FileMode(unix.Umask(0))
+	// unix.Umask(int(umask))
 }

@@ -335,13 +335,25 @@ document.onkeydown=function(e){
   {{template "head"}}
   <title>{{.Repo}}:{{.Name}}</title>
 <body id="results">
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                document.getElementById("message").style.display = "block"; // Show success message
+                setTimeout(() => {
+                    document.getElementById("message").style.display = "none";
+                }, 1500);
+            }).catch(function(err) {
+                console.error("Error copying to clipboard: ", err);
+            });
+        }
+    </script>
   {{template "navbar" .Last}}
   <div class="container-fluid container-results" >
      <div><b>{{.Name}}</b></div>
      <div class="table table-hover table-condensed" style="overflow:auto; background: #eef;">
-       {{ range $index, $ln := .Lines}}
-	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#l{{Inc $index}}">{{Inc $index}}</a>: </span>{{$ln}}</pre>
-       {{end}}
+{{ $fname := .Name }}
+       {{ range $index, $ln := .Lines }}
+	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#" onclick="copyToClipboard('codelink://{{$fname}}:{{Inc $index}}'); return false;">{{Inc $index}}</a>: </span>{{$ln}}</pre>       {{ end }}
      </div>
   <nav class="navbar navbar-default navbar-bottom">
     <div class="container">

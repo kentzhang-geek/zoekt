@@ -56,6 +56,8 @@ type IndexConfig struct {
 	FileExtensions string `json:"file_extensions"`
 	// Custom index output directory (defaults to ~/.zoekt/indexdb)
 	IndexDir string `json:"index_dir"`
+	// Parallelism factor for indexing
+	Parallelism int `json:"parallelism"`
 }
 
 func (a *fileAggregator) add(path string, info os.FileInfo, err error) error {
@@ -183,6 +185,11 @@ func listConfigs() error {
 		// Show repo name if specified
 		if config.RepoName != "" {
 			fmt.Printf("  Repo Name: %s\n", config.RepoName)
+		}
+
+		// show Parallelism
+		if config.Parallelism > 0 {
+			fmt.Printf("  Parallelism: %d\n", config.Parallelism)
 		}
 
 		fmt.Printf("  Paths: %d directories\n", len(config.Paths))
@@ -313,6 +320,11 @@ func main() {
 
 		// Set the index output directory
 		opts.IndexDir = outputIndexDir
+
+		// Set parallelism from config
+		if config.Parallelism > 0 {
+			opts.Parallelism = config.Parallelism
+		}
 
 		// Set repository name if provided
 		if config.RepoName != "" {

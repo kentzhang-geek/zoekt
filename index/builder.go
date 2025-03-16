@@ -313,7 +313,7 @@ func (o *Options) SetDefaults() {
 	}
 
 	if o.Parallelism == 0 {
-		o.Parallelism = 4
+		o.Parallelism = 32
 	}
 	if o.SizeMax == 0 {
 		o.SizeMax = 2 << 20

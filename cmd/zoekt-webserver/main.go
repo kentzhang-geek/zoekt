@@ -137,7 +137,15 @@ func main() {
 	logRefresh := flag.Duration("log_refresh", 24*time.Hour, "if using --log_dir, start writing a new file this often.")
 
 	listen := flag.String("listen", ":6070", "listen on this address.")
-	indexDir := flag.String("index", index.DefaultDir, "set index directory to use")
+
+	// Get user's data directory for default index location
+	configDir, err := getZoektConfigDir()
+	if err != nil {
+		log.Printf("Warning: Could not determine user data directory: %v", err)
+	}
+	defaultIndexPath := filepath.Join(configDir, "indexdb")
+	indexDir := flag.String("index", defaultIndexPath, "set index directory to use")
+
 	html := flag.Bool("html", true, "enable HTML interface")
 	enableRPC := flag.Bool("rpc", false, "enable go/net RPC")
 	enableIndexserverProxy := flag.Bool("indexserver_proxy", false, "proxy requests with URLs matching the path /indexserver/ to <index>/indexserver.sock")
@@ -688,3 +696,22 @@ var (
 		return serverMetrics
 	})
 )
+
+// getZoektConfigDir returns the path to the .zoekt config directory
+func getZoektConfigDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	configDir := filepath.Join(homeDir, ".zoekt")
+
+	// Create directory if it doesn't exist
+	if _, err := os.Stat(configDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create .zoekt directory: %v", err)
+		}
+	}
+
+	return configDir, nil
+}

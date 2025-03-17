@@ -316,32 +316,35 @@ func main() {
 		config.IndexDir = indexOutputDir
 
 		// Process all paths from config
-		opts := cmd.OptionsFromFlags()
+		for _, path := range config.Paths {
+			// Create a new options instance for each path
+			opts := cmd.OptionsFromFlags()
 
-		// Set the index output directory
-		opts.IndexDir = outputIndexDir
+			// Set the index output directory
+			opts.IndexDir = indexOutputDir
 
-		// Set parallelism from config
-		if config.Parallelism > 0 {
-			opts.Parallelism = config.Parallelism
-		}
+			// Set parallelism from config
+			if config.Parallelism > 0 {
+				opts.Parallelism = config.Parallelism
+			}
 
-		// Set repository name if provided
-		if config.RepoName != "" {
-			for _, path := range config.Paths {
-				opts.RepositoryDescription.Name = config.RepoName
-				opts.RepositoryDescription.Source = path
-				if err := indexArgWithFilters(path, *opts, ignoreDirMap, fileExts); err != nil {
-					log.Fatal(err)
+			// Set repository name if provided in config, otherwise use directory name
+			if config.RepoName != "" {
+				// For multiple paths, append the base directory name to make them unique
+				if len(config.Paths) > 1 {
+					baseDir := filepath.Base(path)
+					opts.RepositoryDescription.Name = fmt.Sprintf("%s/%s", config.RepoName, baseDir)
+				} else {
+					opts.RepositoryDescription.Name = config.RepoName
 				}
 			}
-		} else {
-			// Use default behavior (directory name as repo name)
-			for _, path := range config.Paths {
-				opts.RepositoryDescription.Source = path
-				if err := indexArgWithFilters(path, *opts, ignoreDirMap, fileExts); err != nil {
-					log.Fatal(err)
-				}
+
+			// Set the source path
+			opts.RepositoryDescription.Source = path
+
+			log.Printf("Indexing path: %s as repository: %s", path, opts.RepositoryDescription.Name)
+			if err := indexArgWithFilters(path, *opts, ignoreDirMap, fileExts); err != nil {
+				log.Fatalf("Error indexing %s: %v", path, err)
 			}
 		}
 

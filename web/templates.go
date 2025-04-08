@@ -112,6 +112,40 @@ var TemplateText = map[string]string{
   .search-history-item:hover {
      background-color: #f5f5f5;
   }
+  
+  /* Favorite searches styles */
+  .favorite-list {
+     max-height: 60vh;
+     overflow-y: auto;
+     min-width: 300px;
+     max-width: 400px;
+  }
+  .favorite-list li {
+     width: 100%;
+  }
+  .favorite-list li a {
+     text-overflow: ellipsis;
+     overflow-x: auto;
+     max-width: 100%;
+     white-space: nowrap;
+     display: block;
+     padding-right: 15px;
+  }
+  .favorite-item {
+     padding: 3px 20px;
+     cursor: pointer;
+  }
+  .favorite-item:hover {
+     background-color: #f5f5f5;
+  }
+  .favorite-btn {
+     color: #ffc107;
+     cursor: pointer;
+     margin-left: 8px;
+  }
+  .favorite-btn:hover {
+     color: #ffdb58;
+  }
 </style>
 </head>
   `,
@@ -124,7 +158,9 @@ var TemplateText = map[string]string{
 // Search history functionality
 (function() {
   const SEARCH_HISTORY_KEY = 'zoekt_search_history';
+  const FAVORITE_SEARCHES_KEY = 'zoekt_favorite_searches';
   const MAX_HISTORY_ITEMS = 20;
+  const MAX_FAVORITE_ITEMS = 50;
   
   // Save a search query to history
   function saveToSearchHistory(query) {
@@ -205,9 +241,174 @@ var TemplateText = map[string]string{
     }
   }
   
+  // Save a search query to favorites
+  window.addToFavorites = function(query) {
+    if (!query || query.trim() === '') return;
+    
+    try {
+      // Get existing favorites or create new array
+      let favorites = JSON.parse(localStorage.getItem(FAVORITE_SEARCHES_KEY) || '[]');
+      
+      // Don't add if it already exists
+      if (favorites.includes(query)) {
+        showMessage("Already in favorites");
+        return;
+      }
+      
+      // Add new query to the favorites
+      favorites.push(query);
+      
+      // Sort alphabetically
+      favorites.sort();
+      
+      // Limit size
+      if (favorites.length > MAX_FAVORITE_ITEMS) {
+        favorites = favorites.slice(0, MAX_FAVORITE_ITEMS);
+      }
+      
+      // Save back to localStorage
+      localStorage.setItem(FAVORITE_SEARCHES_KEY, JSON.stringify(favorites));
+      
+      // Reload favorites in UI
+      loadFavorites();
+      
+      // Show confirmation
+      showMessage("Added to favorites");
+    } catch (error) {
+      console.error('Failed to save favorite:', error);
+    }
+  }
+  
+  // Remove a search query from favorites
+  window.removeFromFavorites = function(query) {
+    try {
+      // Get existing favorites
+      let favorites = JSON.parse(localStorage.getItem(FAVORITE_SEARCHES_KEY) || '[]');
+      
+      // Remove the query
+      favorites = favorites.filter(item => item !== query);
+      
+      // Save back to localStorage
+      localStorage.setItem(FAVORITE_SEARCHES_KEY, JSON.stringify(favorites));
+      
+      // Reload favorites in UI
+      loadFavorites();
+      
+      // Show confirmation
+      showMessage("Removed from favorites");
+    } catch (error) {
+      console.error('Failed to remove favorite:', error);
+    }
+  }
+  
+  // Clear all favorites
+  window.clearFavorites = function() {
+    try {
+      localStorage.setItem(FAVORITE_SEARCHES_KEY, '[]');
+      loadFavorites();
+      showMessage("Favorites cleared");
+    } catch (error) {
+      console.error('Failed to clear favorites:', error);
+    }
+  }
+  
+  // Load and display favorites
+  function loadFavorites() {
+    try {
+      const favorites = JSON.parse(localStorage.getItem(FAVORITE_SEARCHES_KEY) || '[]');
+      
+      // Find ALL favorites lists on the page (there may be multiple)
+      const favoritesLists = document.querySelectorAll('.favorite-list');
+      
+      favoritesLists.forEach(favoritesList => {
+        // Clear existing favorites items but keep the management options
+        const divider = favoritesList.querySelector('.divider');
+        if (!divider) return; // Skip if list doesn't have expected structure
+        
+        // Remove all items before the divider
+        while (favoritesList.firstChild !== divider) {
+          favoritesList.removeChild(favoritesList.firstChild);
+        }
+        
+        // Add favorites
+        if (favorites.length === 0) {
+          const emptyItem = document.createElement('li');
+          emptyItem.className = 'favorite-item';
+          emptyItem.textContent = 'No favorite searches';
+          emptyItem.style.fontStyle = 'italic';
+          emptyItem.style.color = '#999';
+          favoritesList.insertBefore(emptyItem, divider);
+        } else {
+          favorites.forEach(query => {
+            const item = document.createElement('li');
+            item.className = 'favorite-item';
+            
+            const link = document.createElement('a');
+            link.href = 'search?q=' + encodeURIComponent(query);
+            link.textContent = query;
+            link.title = query;
+            
+            const removeBtn = document.createElement('a');
+            removeBtn.className = 'pull-right text-danger';
+            removeBtn.style.marginLeft = '10px';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.href = '#';
+            removeBtn.title = 'Remove from favorites';
+            removeBtn.onclick = function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              removeFromFavorites(query);
+              return false;
+            };
+            
+            item.appendChild(link);
+            item.appendChild(removeBtn);
+            favoritesList.insertBefore(item, divider);
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Failed to load favorites:', error);
+    }
+  }
+  
+  // Check if a query is in favorites
+  window.isInFavorites = function(query) {
+    try {
+      const favorites = JSON.parse(localStorage.getItem(FAVORITE_SEARCHES_KEY) || '[]');
+      return favorites.includes(query);
+    } catch (error) {
+      console.error('Failed to check favorites:', error);
+      return false;
+    }
+  }
+  
+  // Show a message in the UI
+  function showMessage(message) {
+    // Create message element if it doesn't exist
+    let messageEl = document.getElementById("copy-message");
+    if (!messageEl) {
+      messageEl = document.createElement("div");
+      messageEl.id = "copy-message";
+      document.body.appendChild(messageEl);
+    }
+    
+    // Set message and show
+    messageEl.textContent = message;
+    messageEl.style.display = "block";
+    
+    // Hide after delay
+    setTimeout(() => {
+      messageEl.style.display = "none";
+    }, 1500);
+  }
+  
+  // Make showMessage available globally
+  window.showMessage = showMessage;
+  
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', function() {
-    console.log('Document loaded, initializing search history');
+    console.log('Document loaded, initializing search history and favorites');
     
     // Add global click handler to ensure dropdown buttons work
     $(document).ready(function() {
@@ -216,6 +417,7 @@ var TemplateText = map[string]string{
     });
     
     loadSearchHistory();
+    loadFavorites();
     
     // Add current search to history if on search page
     const navSearchBox = document.getElementById('navsearchbox');
@@ -265,6 +467,15 @@ var TemplateText = map[string]string{
           <li class="divider" role="separator"></li>
           <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
         </ul>
+        <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Favorite Searches">
+          <span class="glyphicon glyphicon-star" aria-hidden="true"></span>
+          <span class="caret"></span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-right favorite-list">
+          <!-- Favorite searches will be populated here by JavaScript -->
+          <li class="divider" role="separator"></li>
+          <li><a href="#" onclick="clearFavorites(); return false;">Clear Favorites</a></li>
+        </ul>
         <button class="btn btn-primary">Search</button>
       </div>
     </div>
@@ -303,6 +514,15 @@ var TemplateText = map[string]string{
                 <!-- Search history will be populated here by JavaScript -->
                 <li class="divider" role="separator"></li>
                 <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
+              </ul>
+              <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Favorite Searches">
+                <span class="glyphicon glyphicon-star" aria-hidden="true"></span>
+                <span class="caret"></span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-right favorite-list">
+                <!-- Favorite searches will be populated here by JavaScript -->
+                <li class="divider" role="separator"></li>
+                <li><a href="#" onclick="clearFavorites(); return false;">Clear Favorites</a></li>
               </ul>
             </div>
           </div>
@@ -449,6 +669,42 @@ document.onkeydown=function(e){
         showing top {{ $fileCount }} files (<a rel="nofollow"
            href="search?q={{.Last.Query}}&num={{More .Last.Num}}">show more</a>).
       {{else}}.{{end}}
+      {{if .QueryStr}}
+      <span class="pull-right">
+        <button id="favorite-toggle" class="btn btn-xs" onclick="toggleFavorite('{{.QueryStr}}'); return false;">
+          <span class="glyphicon glyphicon-star"></span>
+          <span id="favorite-text">Add to favorites</span>
+        </button>
+      </span>
+      <script>
+        // Initialize favorite button state
+        document.addEventListener('DOMContentLoaded', function() {
+          updateFavoriteButton('{{.QueryStr}}');
+        });
+        
+        function toggleFavorite(query) {
+          if (isInFavorites(query)) {
+            removeFromFavorites(query);
+          } else {
+            addToFavorites(query);
+          }
+          updateFavoriteButton(query);
+        }
+        
+        function updateFavoriteButton(query) {
+          const btn = document.getElementById('favorite-toggle');
+          const text = document.getElementById('favorite-text');
+          
+          if (isInFavorites(query)) {
+            btn.className = 'btn btn-xs btn-warning';
+            text.textContent = 'Remove from favorites';
+          } else {
+            btn.className = 'btn btn-xs btn-default';
+            text.textContent = 'Add to favorites';
+          }
+        }
+      </script>
+      {{end}}
     </h5>
     {{range .FileMatches}}
     <table class="table table-hover table-condensed">

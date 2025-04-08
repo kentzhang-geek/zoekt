@@ -89,16 +89,21 @@ var TemplateText = map[string]string{
   
   /* Search history styles */
   .search-history-list {
-     max-height: 80vh;
+     max-height: 60vh;
      overflow-y: auto;
      min-width: 300px;
+     max-width: 400px;
+  }
+  .search-history-list li {
+     width: 100%;
   }
   .search-history-list li a {
      text-overflow: ellipsis;
-     overflow: hidden;
+     overflow-x: auto;
      max-width: 100%;
      white-space: nowrap;
      display: block;
+     padding-right: 15px;
   }
   .search-history-item {
      padding: 3px 20px;

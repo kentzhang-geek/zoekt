@@ -565,7 +565,7 @@ document.onkeydown=function(e){
      <div class="table table-hover table-condensed" style="overflow:auto; background: #eef;">
 {{ $fname := .Name }}
        {{ range $index, $ln := .Lines }}
-	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#" onclick="copyToClipboard('codelink://{{$fname}}:{{Inc $index}}'); return false;">{{Inc $index}}</a>: </span>{{$ln}}</pre>       {{ end }}
+	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#l{{Inc $index}}">{{Inc $index}}</a><a href="#" class="copy-btn" title="Copy code link" onclick="copyToClipboard('codelink://{{$fname}}:{{Inc $index}}'); return false;">📋</a>: </span>{{$ln}}</pre>       {{ end }}
      </div>
   <nav class="navbar navbar-default navbar-bottom">
     <div class="container">

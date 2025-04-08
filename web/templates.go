@@ -65,6 +65,27 @@ var TemplateText = map[string]string{
   }
   :target { background-color: #ccf; }
   table tbody tr td { border: none !important; padding: 2px !important; }
+  
+  /* Search history styles */
+  .search-history-list {
+     max-height: 80vh;
+     overflow-y: auto;
+     min-width: 300px;
+  }
+  .search-history-list li a {
+     text-overflow: ellipsis;
+     overflow: hidden;
+     max-width: 100%;
+     white-space: nowrap;
+     display: block;
+  }
+  .search-history-item {
+     padding: 3px 20px;
+     cursor: pointer;
+  }
+  .search-history-item:hover {
+     background-color: #f5f5f5;
+  }
 </style>
 </head>
   `,
@@ -72,6 +93,110 @@ var TemplateText = map[string]string{
 	"jsdep": `
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
+<script>
+// Search history functionality
+(function() {
+  const SEARCH_HISTORY_KEY = 'zoekt_search_history';
+  const MAX_HISTORY_ITEMS = 20;
+  
+  // Save a search query to history
+  function saveToSearchHistory(query) {
+    if (!query || query.trim() === '') return;
+    
+    try {
+      // Get existing history or create new array
+      let history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+      
+      // Remove existing entry if already exists (to move it to the top)
+      history = history.filter(item => item !== query);
+      
+      // Add new query to the beginning
+      history.unshift(query);
+      
+      // Limit history size
+      if (history.length > MAX_HISTORY_ITEMS) {
+        history = history.slice(0, MAX_HISTORY_ITEMS);
+      }
+      
+      // Save back to localStorage
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+    } catch (error) {
+      console.error('Failed to save search history:', error);
+    }
+  }
+  
+  // Load and display search history
+  function loadSearchHistory() {
+    try {
+      const history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+      const historyList = document.querySelector('.search-history-list');
+      
+      // Clear existing history items but keep the "Clear History" option
+      const divider = historyList.querySelector('.divider');
+      const clearOption = historyList.querySelector('li:last-child');
+      
+      while (historyList.firstChild !== divider) {
+        historyList.removeChild(historyList.firstChild);
+      }
+      
+      // Add history items
+      if (history.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.className = 'search-history-item';
+        emptyItem.textContent = 'No search history';
+        emptyItem.style.fontStyle = 'italic';
+        emptyItem.style.color = '#999';
+        historyList.insertBefore(emptyItem, divider);
+      } else {
+        history.forEach(query => {
+          const item = document.createElement('li');
+          const link = document.createElement('a');
+          link.href = 'search?q=' + encodeURIComponent(query);
+          link.textContent = query;
+          link.title = query;
+          item.appendChild(link);
+          historyList.insertBefore(item, divider);
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load search history:', error);
+    }
+  }
+  
+  // Clear search history
+  window.clearSearchHistory = function() {
+    try {
+      localStorage.setItem(SEARCH_HISTORY_KEY, '[]');
+      loadSearchHistory();
+    } catch (error) {
+      console.error('Failed to clear search history:', error);
+    }
+  }
+  
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    loadSearchHistory();
+    
+    // Add current search to history if on search page
+    const queryInput = document.getElementById('navsearchbox');
+    if (queryInput && queryInput.value.trim() !== '') {
+      saveToSearchHistory(queryInput.value.trim());
+    }
+    
+    // Set up form submission behavior to save search history
+    const searchForm = document.querySelector('form[action="search"]');
+    if (searchForm) {
+      searchForm.addEventListener('submit', function() {
+        const query = document.querySelector('input[name="q"]').value;
+        if (query && query.trim() !== '') {
+          saveToSearchHistory(query.trim());
+        }
+      });
+    }
+  });
+})();
+</script>
 `,
 
 	// the template for the search box.
@@ -107,12 +232,25 @@ var TemplateText = map[string]string{
     <div class="navbar-collapse collapse" id="navbar-collapse" aria-expanded="false" style="height: 1px;">
       <form class="navbar-form navbar-left" action="search">
         <div class="form-group">
-          <input class="form-control"
-                placeholder="Search for some code..." role="search"
-                id="navsearchbox" type="text" name="q" autofocus
-                {{if .Query}}
-                value={{.Query}}
-                {{end}}>
+          <div class="input-group">
+            <input class="form-control"
+                  placeholder="Search for some code..." role="search"
+                  id="navsearchbox" type="text" name="q" autocomplete="off" autofocus
+                  {{if .Query}}
+                  value={{.Query}}
+                  {{end}}>
+            <div class="input-group-btn">
+              <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Search History">
+                <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
+                <span class="caret"></span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-right search-history-list">
+                <!-- Search history will be populated here by JavaScript -->
+                <li class="divider" role="separator"></li>
+                <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
+              </ul>
+            </div>
+          </div>
           <div class="input-group">
             <div class="input-group-addon">Max Results</div>
             <input class="form-control" type="number" id="maxhits" name="num" value="{{.Num}}">

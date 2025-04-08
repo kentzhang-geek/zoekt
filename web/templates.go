@@ -151,35 +151,40 @@ var TemplateText = map[string]string{
   function loadSearchHistory() {
     try {
       const history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
-      const historyList = document.querySelector('.search-history-list');
       
-      // Clear existing history items but keep the "Clear History" option
-      const divider = historyList.querySelector('.divider');
-      const clearOption = historyList.querySelector('li:last-child');
+      // Find ALL history lists on the page (there may be multiple)
+      const historyLists = document.querySelectorAll('.search-history-list');
       
-      while (historyList.firstChild !== divider) {
-        historyList.removeChild(historyList.firstChild);
-      }
-      
-      // Add history items
-      if (history.length === 0) {
-        const emptyItem = document.createElement('li');
-        emptyItem.className = 'search-history-item';
-        emptyItem.textContent = 'No search history';
-        emptyItem.style.fontStyle = 'italic';
-        emptyItem.style.color = '#999';
-        historyList.insertBefore(emptyItem, divider);
-      } else {
-        history.forEach(query => {
-          const item = document.createElement('li');
-          const link = document.createElement('a');
-          link.href = 'search?q=' + encodeURIComponent(query);
-          link.textContent = query;
-          link.title = query;
-          item.appendChild(link);
-          historyList.insertBefore(item, divider);
-        });
-      }
+      historyLists.forEach(historyList => {
+        // Clear existing history items but keep the "Clear History" option
+        const divider = historyList.querySelector('.divider');
+        if (!divider) return; // Skip if list doesn't have expected structure
+        
+        // Remove all items before the divider
+        while (historyList.firstChild !== divider) {
+          historyList.removeChild(historyList.firstChild);
+        }
+        
+        // Add history items
+        if (history.length === 0) {
+          const emptyItem = document.createElement('li');
+          emptyItem.className = 'search-history-item';
+          emptyItem.textContent = 'No search history';
+          emptyItem.style.fontStyle = 'italic';
+          emptyItem.style.color = '#999';
+          historyList.insertBefore(emptyItem, divider);
+        } else {
+          history.forEach(query => {
+            const item = document.createElement('li');
+            const link = document.createElement('a');
+            link.href = 'search?q=' + encodeURIComponent(query);
+            link.textContent = query;
+            link.title = query;
+            item.appendChild(link);
+            historyList.insertBefore(item, divider);
+          });
+        }
+      });
     } catch (error) {
       console.error('Failed to load search history:', error);
     }
@@ -197,24 +202,40 @@ var TemplateText = map[string]string{
   
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', function() {
+    console.log('Document loaded, initializing search history');
+    
+    // Add global click handler to ensure dropdown buttons work
+    $(document).ready(function() {
+      $('.dropdown-toggle').dropdown();
+      console.log('Bootstrap dropdowns initialized');
+    });
+    
     loadSearchHistory();
     
     // Add current search to history if on search page
-    const queryInput = document.getElementById('navsearchbox');
-    if (queryInput && queryInput.value.trim() !== '') {
-      saveToSearchHistory(queryInput.value.trim());
+    const navSearchBox = document.getElementById('navsearchbox');
+    const mainSearchBox = document.getElementById('searchbox');
+    
+    // Check navigation search box
+    if (navSearchBox && navSearchBox.value.trim() !== '') {
+      saveToSearchHistory(navSearchBox.value.trim());
+    }
+    
+    // Check main search box
+    if (mainSearchBox && mainSearchBox.value.trim() !== '') {
+      saveToSearchHistory(mainSearchBox.value.trim());
     }
     
     // Set up form submission behavior to save search history
-    const searchForm = document.querySelector('form[action="search"]');
-    if (searchForm) {
-      searchForm.addEventListener('submit', function() {
-        const query = document.querySelector('input[name="q"]').value;
+    const searchForms = document.querySelectorAll('form[action="search"]');
+    searchForms.forEach(form => {
+      form.addEventListener('submit', function() {
+        const query = this.querySelector('input[name="q"]').value;
         if (query && query.trim() !== '') {
           saveToSearchHistory(query.trim());
         }
       });
-    }
+    });
   });
 })();
 </script>
@@ -363,6 +384,13 @@ document.onkeydown=function(e){
       </p>
     </div>
   </nav>
+  {{ template "jsdep"}}
+  <script>
+    // Initialize dropdowns explicitly for this page
+    $(document).ready(function() {
+      $('.dropdown-toggle').dropdown();
+    });
+  </script>
 </body>
 </html>
 `,

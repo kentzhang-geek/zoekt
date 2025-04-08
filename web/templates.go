@@ -63,6 +63,27 @@ var TemplateText = map[string]string{
      padding: unset;
      overflow: unset;
   }
+  .copy-btn {
+     margin-left: 2px;
+     cursor: pointer;
+     opacity: 0.6;
+     font-size: 0.8em;
+  }
+  .copy-btn:hover {
+     opacity: 1;
+  }
+  #copy-message {
+     display: none;
+     position: fixed;
+     top: 20px;
+     left: 50%;
+     transform: translateX(-50%);
+     padding: 8px 16px;
+     background-color: rgba(0, 0, 0, 0.7);
+     color: white;
+     border-radius: 4px;
+     z-index: 9999;
+  }
   :target { background-color: #ccf; }
   table tbody tr td { border: none !important; padding: 2px !important; }
   
@@ -199,7 +220,6 @@ var TemplateText = map[string]string{
 </script>
 `,
 
-	// the template for the search box.
 	"searchbox": `
 <form action="search">
   <div class="form-group form-group-lg">
@@ -210,6 +230,15 @@ var TemplateText = map[string]string{
               {{end}}
               id="searchbox" type="text" name="q">
       <div class="input-group-btn">
+        <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Search History">
+          <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
+          <span class="caret"></span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-right search-history-list">
+          <!-- Search history will be populated here by JavaScript -->
+          <li class="divider" role="separator"></li>
+          <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
+        </ul>
         <button class="btn btn-primary">Search</button>
       </div>
     </div>
@@ -276,7 +305,6 @@ document.onkeydown=function(e){
 };
 </script>
 `,
-	// search box for the entry page.
 	"search": `
 <html>
 {{template "head"}}
@@ -348,6 +376,35 @@ document.onkeydown=function(e){
       window.location.href = "/search?q=" + escape("{{.QueryStr}}" + " " + atom) +
 	  "&" + "num=" + {{.Last.Num}};
   }
+  
+  function copyCodeLink(fileName, lineNum) {
+      const text = "codelink://" + fileName + ":" + lineNum;
+      navigator.clipboard.writeText(text).then(function() {
+          showCopyMessage("Copied link to clipboard");
+      }).catch(function(err) {
+          console.error("Error copying to clipboard: ", err);
+          showCopyMessage("Failed to copy link");
+      });
+  }
+  
+  function showCopyMessage(message) {
+      // Create message element if it doesn't exist
+      let messageEl = document.getElementById("copy-message");
+      if (!messageEl) {
+          messageEl = document.createElement("div");
+          messageEl.id = "copy-message";
+          document.body.appendChild(messageEl);
+      }
+      
+      // Set message and show
+      messageEl.textContent = message;
+      messageEl.style.display = "block";
+      
+      // Hide after delay
+      setTimeout(() => {
+          messageEl.style.display = "none";
+      }, 1500);
+  }
 </script>
 <body id="results">
   {{template "navbar" .Last}}
@@ -383,7 +440,7 @@ document.onkeydown=function(e){
         {{if gt .LineNum 0}}
         <tr>
           <td style="background-color: rgba(238, 238, 255, 0.6);">
-            <pre class="inline-pre"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}: </span>{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
+            <pre class="inline-pre"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
           </td>
         </tr>
         {{end}}
@@ -476,13 +533,30 @@ document.onkeydown=function(e){
     <script>
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(function() {
-                document.getElementById("message").style.display = "block"; // Show success message
-                setTimeout(() => {
-                    document.getElementById("message").style.display = "none";
-                }, 1500);
+                showCopyMessage("Copied link to clipboard");
             }).catch(function(err) {
                 console.error("Error copying to clipboard: ", err);
+                showCopyMessage("Failed to copy link");
             });
+        }
+        
+        function showCopyMessage(message) {
+            // Create message element if it doesn't exist
+            let messageEl = document.getElementById("copy-message");
+            if (!messageEl) {
+                messageEl = document.createElement("div");
+                messageEl.id = "copy-message";
+                document.body.appendChild(messageEl);
+            }
+            
+            // Set message and show
+            messageEl.textContent = message;
+            messageEl.style.display = "block";
+            
+            // Hide after delay
+            setTimeout(() => {
+                messageEl.style.display = "none";
+            }, 1500);
         }
     </script>
   {{template "navbar" .Last}}

@@ -458,6 +458,7 @@ var TemplateText = map[string]string{
               {{end}}
               id="searchbox" type="text" name="q">
       <div class="input-group-btn">
+        <!-- History dropdown -->
         <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Search History">
           <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
           <span class="caret"></span>
@@ -467,6 +468,8 @@ var TemplateText = map[string]string{
           <li class="divider" role="separator"></li>
           <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
         </ul>
+        
+        <!-- Favorites dropdown -->
         <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Favorite Searches">
           <span class="glyphicon glyphicon-star" aria-hidden="true"></span>
           <span class="caret"></span>
@@ -476,6 +479,7 @@ var TemplateText = map[string]string{
           <li class="divider" role="separator"></li>
           <li><a href="#" onclick="clearFavorites(); return false;">Clear Favorites</a></li>
         </ul>
+        
         <button class="btn btn-primary">Search</button>
       </div>
     </div>
@@ -506,24 +510,31 @@ var TemplateText = map[string]string{
                   value={{.Query}}
                   {{end}}>
             <div class="input-group-btn">
-              <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Search History">
-                <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
-                <span class="caret"></span>
-              </button>
-              <ul class="dropdown-menu dropdown-menu-right search-history-list">
-                <!-- Search history will be populated here by JavaScript -->
-                <li class="divider" role="separator"></li>
-                <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
-              </ul>
-              <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Favorite Searches">
-                <span class="glyphicon glyphicon-star" aria-hidden="true"></span>
-                <span class="caret"></span>
-              </button>
-              <ul class="dropdown-menu dropdown-menu-right favorite-list">
-                <!-- Favorite searches will be populated here by JavaScript -->
-                <li class="divider" role="separator"></li>
-                <li><a href="#" onclick="clearFavorites(); return false;">Clear Favorites</a></li>
-              </ul>
+              <!-- History dropdown -->
+              <div class="btn-group">
+                <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Search History">
+                  <span class="glyphicon glyphicon-time" aria-hidden="true"></span>
+                  <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-right search-history-list">
+                  <!-- Search history will be populated here by JavaScript -->
+                  <li class="divider" role="separator"></li>
+                  <li><a href="#" onclick="clearSearchHistory(); return false;">Clear History</a></li>
+                </ul>
+              </div>
+              
+              <!-- Favorites dropdown -->
+              <div class="btn-group">
+                <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Favorite Searches">
+                  <span class="glyphicon glyphicon-star" aria-hidden="true"></span>
+                  <span class="caret"></span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-right favorite-list">
+                  <!-- Favorite searches will be populated here by JavaScript -->
+                  <li class="divider" role="separator"></li>
+                  <li><a href="#" onclick="clearFavorites(); return false;">Clear Favorites</a></li>
+                </ul>
+              </div>
             </div>
           </div>
           <div class="input-group">

@@ -673,6 +673,19 @@ document.onkeydown=function(e){
           messageEl.style.display = "none";
       }, 1500);
   }
+
+  // Folding/unfolding per file result
+  function toggleFileMatches(id) {
+    var body = document.getElementById('filematches-' + id);
+    var icon = document.getElementById('toggleicon-' + id);
+    if (body.style.display === 'none') {
+      body.style.display = '';
+      if (icon) icon.textContent = '▼';
+    } else {
+      body.style.display = 'none';
+      if (icon) icon.textContent = '►';
+    }
+  }
 </script>
 <body id="results">
   {{template "navbar" .Last}}
@@ -685,7 +698,8 @@ document.onkeydown=function(e){
            href="search?q={{.Last.Query}}&num={{More .Last.Num}}">show more</a>).
       {{else}}.{{end}}
       {{if .QueryStr}}
-      <span class="pull-right">
+      <span class="pull-right" style="display: flex; gap: 8px; align-items: center;">
+        <button id="fold-toggle-all" class="btn btn-xs btn-default" onclick="toggleAllFiles(); return false;">Fold all</button>
         <button id="favorite-toggle" class="btn btn-xs" onclick="toggleFavorite('{{.QueryStr}}'); return false;">
           <span class="glyphicon glyphicon-star"></span>
           <span id="favorite-text">Add to favorites</span>
@@ -718,38 +732,64 @@ document.onkeydown=function(e){
             text.textContent = 'Add to favorites';
           }
         }
+
+        // Fold/Unfold all logic
+        let allFolded = true;
+        function toggleAllFiles() {
+          const allToggles = document.querySelectorAll('[id^="toggleicon-"]');
+          const allBodies = document.querySelectorAll('[id^="filematches-"]');
+          const btn = document.getElementById('fold-toggle-all');
+          if (allFolded) {
+            allBodies.forEach(b => b.style.display = '');
+            allToggles.forEach(i => i.textContent = '▼');
+            btn.textContent = 'Unfold all';
+            allFolded = false;
+          } else {
+            allBodies.forEach(b => b.style.display = 'none');
+            allToggles.forEach(i => i.textContent = '►');
+            btn.textContent = 'Fold all';
+            allFolded = true;
+          }
+        }
       </script>
       {{end}}
     </h5>
-    {{range .FileMatches}}
-    <table class="table table-hover table-condensed">
+    {{range $i, $f := .FileMatches}}
+    <table class="table table-hover table-condensed" style="margin-bottom: 24px;">
       <thead>
         <tr>
-          <th>
-            {{if .URL}}<a name="{{.ResultID}}" class="result"></a><a href="{{.URL}}" >{{else}}<a name="{{.ResultID}}">{{end}}
-            <small>
-              {{.Repo}}:{{.FileName}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</a>:
-              <span style="font-weight: normal">[ {{if .Branches}}{{range .Branches}}<span class="label label-default">{{.}}</span>,{{end}}{{end}} ]</span>
-              {{if .Language}}<button
-                   title="restrict search to files written in {{.Language}}"
-                   onclick="zoektAddQ('lang:&quot;{{.Language}}&quot;')" class="label label-primary">language {{.Language}}</button></span>{{end}}
-              {{if .DuplicateID}}<a class="label label-dup" href="#{{.DuplicateID}}">Duplicate result</a>{{end}}
-            </small>
+          <th style="vertical-align: middle;">
+            <span style="display: flex; align-items: center;">
+              <span style="cursor:pointer; margin-right: 8px; font-size: 18px;" onclick="toggleFileMatches('{{$f.ResultID}}')">
+                <span id="toggleicon-{{$f.ResultID}}">►</span>
+              </span>
+              <span>
+                {{if $f.URL}}<a name="{{$f.ResultID}}" class="result"></a><a href="{{$f.URL}}" >{{else}}<a name="{{$f.ResultID}}">{{end}}
+                <small>
+                  <span style="font-weight: bold;">{{$f.Repo}}:{{$f.FileName}}</span> {{if $f.ScoreDebug}}<i>({{$f.ScoreDebug}})</i>{{end}}</a>:
+                  <span style="font-weight: normal">[ {{if $f.Branches}}{{range $f.Branches}}<span class="label label-default">{{.}}</span>,{{end}}{{end}} ]</span>
+                  {{if $f.Language}}<button
+                       title="restrict search to files written in {{$f.Language}}"
+                       onclick="zoektAddQ('lang:&quot;{{$f.Language}}&quot;')" class="label label-primary">language {{$f.Language}}</button></span>{{end}}
+                  {{if $f.DuplicateID}}<a class="label label-dup" href="#{{$f.DuplicateID}}">Duplicate result</a>{{end}}
+                </small>
+              </span>
+            </span>
           </th>
         </tr>
       </thead>
-      {{if not .DuplicateID}}
-      <tbody>
-        {{range .Matches}}
+      {{if not $f.DuplicateID}}
+      <tbody id="filematches-{{$f.ResultID}}" style="display:none;">
+        {{range $f.Matches}}
         {{if gt .LineNum 0}}
-        <tr>
-          <td style="background-color: rgba(238, 238, 255, 0.6);">
-            <pre class="inline-pre"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
+        <tr style="border-top: 1px solid #e0e0e0;">
+          <td style="background-color: rgba(238, 238, 255, 0.6); border-top: 1px solid #e0e0e0;">
+            <pre class="inline-pre" style="margin-bottom: 0;"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
           </td>
         </tr>
         {{end}}
+        {{end}}
       </tbody>
-      {{end}}
       {{end}}
     </table>
     {{end}}
@@ -774,6 +814,12 @@ document.onkeydown=function(e){
   </nav>
   </div>
   {{ template "jsdep"}}
+  <script>
+    // Initialize dropdowns explicitly for this page
+    $(document).ready(function() {
+      $('.dropdown-toggle').dropdown();
+    });
+  </script>
 </body>
 </html>
 `,

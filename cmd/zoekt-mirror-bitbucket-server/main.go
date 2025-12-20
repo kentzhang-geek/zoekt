@@ -29,7 +29,7 @@ import (
 
 	bitbucketv1 "github.com/gfleury/go-bitbucket-v1"
 
-	"github.com/sourcegraph/zoekt/internal/gitindex"
+	"github.com/sourcegraph/zoekt/gitindex"
 )
 
 func main() {
@@ -179,7 +179,7 @@ func IsValidProjectType(projectType string) bool {
 
 func getAllRepos(client bitbucketv1.APIClient) ([]bitbucketv1.Repository, error) {
 	var allRepos []bitbucketv1.Repository
-	opts := map[string]interface{}{
+	opts := map[string]any{
 		"limit": 1000,
 		"start": 0,
 	}
@@ -208,7 +208,7 @@ func getAllRepos(client bitbucketv1.APIClient) ([]bitbucketv1.Repository, error)
 
 func getProjectRepos(client bitbucketv1.APIClient, projectName string) ([]bitbucketv1.Repository, error) {
 	var allRepos []bitbucketv1.Repository
-	opts := map[string]interface{}{
+	opts := map[string]any{
 		"limit": 1000,
 		"start": 0,
 	}

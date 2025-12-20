@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -30,7 +31,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sourcegraph/zoekt"
-	"github.com/sourcegraph/zoekt/internal/languages"
+	"github.com/sourcegraph/zoekt/languages"
 )
 
 var _ = log.Println
@@ -206,6 +207,8 @@ type ShardBuilder struct {
 	// language codes, uint16 encoded as little-endian
 	languages []uint8
 
+	categories []byte
+
 	// IndexTime will be used as the time if non-zero. Otherwise
 	// time.Now(). This is useful for doing reproducible builds in tests.
 	IndexTime time.Time
@@ -232,7 +235,7 @@ func urlJoinPath(base string, elem ...string) string {
 	//
 	// [1]: https://sourcegraph.com/github.com/golang/go@go1.23.2/-/blob/src/html/template/html.go?L71-80
 	// [2]: https://github.com/apple/swift-system/blob/main/Sources/System/Util+StringArray.swift
-	elem = append([]string{}, elem...) // copy to mutate
+	elem = slices.Clone(elem) // copy to mutate
 	for i := range elem {
 		elem[i] = strings.ReplaceAll(elem[i], "+", "%2B")
 	}
@@ -400,31 +403,35 @@ func DetermineLanguageIfUnknown(doc *Document) {
 		return
 	}
 
-	if doc.SkipReason != "" {
-		// If this document has been skipped, it's likely very large, or it's a non-code file like binary.
-		// In this case, we just guess the language based on file name to avoid examining the contents.
-		// Note: passing nil content is allowed by the go-enry contract (the underlying library we use here).
-		doc.Language = languages.GetLanguage(doc.Name, nil)
-	} else {
-		doc.Language = languages.GetLanguage(doc.Name, doc.Content)
+	// If this document has been skipped (doc.SkipReason != SkipReasonNone), it's
+	// likely very large, or it's a non-code file like binary. In this case, we just
+	// guess the language based on the file name to avoid examining the contents.
+	// Note: passing nil content is allowed by the go-enry contract (the underlying
+	// library we use here).
+	var content []byte
+	if doc.SkipReason == SkipReasonNone {
+		content = doc.Content
+	}
+	langs := languages.GetLanguagesFromContent(doc.Name, content)
+	if len(langs) > 0 {
+		doc.Language = langs[0]
 	}
 }
 
 // Add a file which only occurs in certain branches.
 func (b *ShardBuilder) Add(doc Document) error {
-	hasher := crc64.New(crc64.MakeTable(crc64.ISO))
-
-	if idx := bytes.IndexByte(doc.Content, 0); idx >= 0 {
-		doc.SkipReason = fmt.Sprintf("binary content at byte offset %d", idx)
+	if index := bytes.IndexByte(doc.Content, 0); index > 0 {
+		doc.SkipReason = SkipReasonBinary
 	}
 
-	if doc.SkipReason != "" {
-		doc.Content = []byte(notIndexedMarker + doc.SkipReason)
+	if doc.SkipReason != SkipReasonNone {
+		doc.Content = []byte(notIndexedMarker + doc.SkipReason.explanation())
 		doc.Symbols = nil
 		doc.SymbolsMetaData = nil
 	}
 
 	DetermineLanguageIfUnknown(&doc)
+	DetermineFileCategory(&doc)
 
 	sort.Sort(symbolSlice{doc.Symbols, doc.SymbolsMetaData})
 	var last DocumentSection
@@ -478,6 +485,7 @@ func (b *ShardBuilder) Add(doc Document) error {
 	b.subRepos = append(b.subRepos, subRepoIdx)
 	b.repos = append(b.repos, uint16(repoIdx))
 
+	hasher := crc64.New(crc64.MakeTable(crc64.ISO))
 	hasher.Write(doc.Content)
 
 	b.contentStrings = append(b.contentStrings, docStr)
@@ -498,6 +506,12 @@ func (b *ShardBuilder) Add(doc Document) error {
 		b.languageMap[doc.Language] = langCode
 	}
 	b.languages = append(b.languages, uint8(langCode), uint8(langCode>>8))
+
+	category, err := doc.Category.encode()
+	if err != nil {
+		return err
+	}
+	b.categories = append(b.categories, category)
 
 	return nil
 }
@@ -534,23 +548,23 @@ type DocChecker struct {
 }
 
 // Check returns a reason why the given contents are probably not source texts.
-func (t *DocChecker) Check(content []byte, maxTrigramCount int, allowLargeFile bool) error {
+func (t *DocChecker) Check(content []byte, maxTrigramCount int, allowLargeFile bool) SkipReason {
 	if len(content) == 0 {
-		return nil
+		return SkipReasonNone
 	}
 
 	if len(content) < ngramSize {
-		return fmt.Errorf("file size smaller than %d", ngramSize)
+		return SkipReasonTooSmall
 	}
 
 	if index := bytes.IndexByte(content, 0); index > 0 {
-		return fmt.Errorf("binary data at byte offset %d", index)
+		return SkipReasonBinary
 	}
 
 	// PERF: we only need to do the trigram check if the upperbound on content is greater than
 	// our threshold. Also skip the trigram check if the file is explicitly marked as allowed.
 	if trigramsUpperBound := len(content) - ngramSize + 1; trigramsUpperBound <= maxTrigramCount || allowLargeFile {
-		return nil
+		return SkipReasonNone
 	}
 
 	var cur [3]rune
@@ -571,10 +585,10 @@ func (t *DocChecker) Check(content []byte, maxTrigramCount int, allowLargeFile b
 		t.trigrams[runesToNGram(cur)] = struct{}{}
 		if len(t.trigrams) > maxTrigramCount {
 			// probably not text.
-			return fmt.Errorf("number of trigrams exceeds %d", maxTrigramCount)
+			return SkipReasonTooManyTrigrams
 		}
 	}
-	return nil
+	return SkipReasonNone
 }
 
 func (t *DocChecker) clearTrigrams(maxTrigramCount int) {
@@ -586,9 +600,9 @@ func (t *DocChecker) clearTrigrams(maxTrigramCount int) {
 	}
 }
 
-// ShardName returns the name of the shard for the given prefix, version, and
+// shardName returns the name of the shard for the given prefix, version, and
 // shard number.
-func ShardName(indexDir string, prefix string, version, n int) string {
+func shardName(indexDir string, prefix string, version, n int) string {
 	prefix = url.QueryEscape(prefix)
 	if len(prefix) > 200 {
 		prefix = prefix[:200] + hashString(prefix)[:8]

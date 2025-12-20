@@ -16,11 +16,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
-	"github.com/sourcegraph/zoekt/internal/shards"
 	"github.com/sourcegraph/zoekt/query"
-	"github.com/stretchr/testify/require"
+	"github.com/sourcegraph/zoekt/search"
 )
 
 func TestMain(m *testing.M) {
@@ -117,7 +118,7 @@ func testIndexIncrementally(t *testing.T, format string) {
 	fileSize := 1000
 
 	files := map[string]string{}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d", i)
 		files["F"+s] = strings.Repeat("a", fileSize)
 		files["!F"+s] = strings.Repeat("a", fileSize)
@@ -178,7 +179,7 @@ func testIndexIncrementally(t *testing.T, format string) {
 			t.Fatalf("error creating index: %v", err)
 		}
 
-		ss, err := shards.NewDirectorySearcher(indexDir)
+		ss, err := search.NewDirectorySearcher(indexDir)
 		if err != nil {
 			t.Fatalf("NewDirectorySearcher(%s): %v", indexDir, err)
 		}
@@ -219,7 +220,7 @@ func testLatestCommitDate(t *testing.T, format string) {
 
 	fileSize := 10
 	files := map[string]string{}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d", i)
 		files["F"+s] = strings.Repeat("a", fileSize)
 		files["!F"+s] = strings.Repeat("a", fileSize)

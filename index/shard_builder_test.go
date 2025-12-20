@@ -40,7 +40,7 @@ func TestShardName(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			actual := ShardName(test.indexDir, test.prefix, test.version, test.shardNum)
+			actual := shardName(test.indexDir, test.prefix, test.version, test.shardNum)
 			if actual != test.expected {
 				t.Errorf("expected %q, got %q", test.expected, actual)
 			}
@@ -68,7 +68,7 @@ func TestDetermineLanguageIfUnknown(t *testing.T) {
 			name: "skipped file",
 			doc: Document{
 				Name:       "large.js",
-				SkipReason: "too large",
+				SkipReason: SkipReasonTooLarge,
 				Content:    []byte(notIndexedMarker + "too large"),
 			},
 			wantLang: "JavaScript",
@@ -77,7 +77,7 @@ func TestDetermineLanguageIfUnknown(t *testing.T) {
 			name: "skipped file with unknown extension",
 			doc: Document{
 				Name:       "deadb33f",
-				SkipReason: "binary",
+				SkipReason: SkipReasonBinary,
 				Content:    []byte(notIndexedMarker + "binary"),
 			},
 			wantLang: "",

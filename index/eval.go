@@ -118,6 +118,17 @@ func (d *indexData) simplify(in query.Q) query.Q {
 			if !has {
 				return &query.Const{Value: false}
 			}
+		case *query.Meta:
+			return d.simplifyMultiRepo(q, func(repo *zoekt.Repository) bool {
+				if repo.Metadata == nil {
+					return false
+				}
+				v, ok := repo.Metadata[r.Field]
+				if !ok {
+					return false
+				}
+				return r.Value.MatchString(v)
+			})
 		}
 		return q
 	})
@@ -316,7 +327,7 @@ nextFileMatch:
 		}
 
 		if opts.UseBM25Scoring {
-			d.scoreFilesUsingBM25(&fileMatch, nextDoc, finalCands, cp, opts)
+			d.scoreFileBM25(&fileMatch, nextDoc, finalCands, cp, opts)
 		} else {
 			// Use the standard, non-experimental scoring method by default
 			d.scoreFile(&fileMatch, nextDoc, mt, known, opts)
@@ -498,7 +509,7 @@ func (d *indexData) gatherBranches(docID uint32, mt matchTree, known map[matchTr
 	}
 
 	var branches []string
-	id := uint32(1)
+	id := uint64(1)
 	branchNames := d.branchNames[d.repos[docID]]
 	for mask != 0 {
 		if mask&0x1 != 0 {

@@ -17,9 +17,10 @@ package index
 import (
 	"encoding/binary"
 	"log"
+	"math"
 	"math/rand"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"testing"
 	"testing/quick"
@@ -98,7 +99,7 @@ func TestNextFileIndex(t *testing.T) {
 		ends         []uint32
 		want         uint32
 	}{
-		{maxUInt32, 0, []uint32{34}, 1},
+		{math.MaxUint32, 0, []uint32{34}, 1},
 		{9, 0, []uint32{34}, 0},
 		{450, 0, []uint32{100, 200, 300, 400, 500, 600}, 4},
 	} {
@@ -149,7 +150,7 @@ func TestCompressedPostingIterator(t *testing.T) {
 
 		var nums []uint32
 		i := newCompressedPostingIterator(data, stringToNGram("abc"))
-		for i.first() != maxUInt32 {
+		for i.first() != math.MaxUint32 {
 			nums = append(nums, i.first())
 			i.next(i.first())
 		}
@@ -197,7 +198,7 @@ func sortedUnique(nums []uint32) []uint32 {
 	if len(nums) == 0 {
 		return nums
 	}
-	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	slices.Sort(nums)
 	filtered := nums[:1]
 	for _, n := range nums[1:] {
 		if filtered[len(filtered)-1] != n {
@@ -295,7 +296,7 @@ func BenchmarkUnmarshalDocSections(b *testing.B) {
 	for size := 10; size <= 10000; size *= 10 {
 		ds := make([]DocumentSection, 0, size)
 		var last uint32
-		for i := 0; i < size; i++ {
+		for range size {
 			var d DocumentSection
 			last += 1 + uint32(rng.Int31n(200))
 			d.Start = last

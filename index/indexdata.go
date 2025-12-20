@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"hash/crc64"
 	"log"
+	"math"
 	"math/bits"
 	"slices"
 	"unicode/utf8"
@@ -92,6 +93,9 @@ type indexData struct {
 	// inverse of LanguageMap in metaData
 	languageMap map[uint16]string
 
+	// file categories for all the files.
+	categories []byte
+
 	repoListEntry []zoekt.RepoListEntry
 
 	// repository indexes for all the files
@@ -99,6 +103,9 @@ type indexData struct {
 
 	// rawConfigMasks contains the encoded RawConfig for each repository
 	rawConfigMasks []uint8
+
+	// Cache for docMatchTree objects
+	docMatchTreeCache *docMatchTreeCache
 }
 
 type symbolData struct {
@@ -170,6 +177,18 @@ func (d *indexData) getLanguage(idx uint32) uint16 {
 	}
 	// newer zoekt files have 16-bit language entries
 	return uint16(d.languages[idx*2]) | uint16(d.languages[idx*2+1])<<8
+}
+
+func (d *indexData) getCategory(idx uint32) FileCategory {
+	if len(d.categories) == 0 {
+		// This means we're reading an older index, so return 'missing'
+		return FileCategoryMissing
+	}
+	category, err := decodeCategory(d.categories[idx])
+	if err != nil {
+		return FileCategoryMissing
+	}
+	return category
 }
 
 // calculates stats for files in the range [start, end).
@@ -339,12 +358,10 @@ func findSelectiveNgrams(ngramOffs []runeNgramOff, indexMap []int, frequencies [
 	return
 }
 
-const maxUInt32 = 0xffffffff
-
 func minFrequencyNgramOffsets(ngramOffs []runeNgramOff, frequencies []uint32) (first, last runeNgramOff) {
 	// Find the two lowest frequency ngrams.
 	idx0, idx1 := 0, 0
-	min0, min1 := uint32(maxUInt32), uint32(maxUInt32)
+	min0, min1 := uint32(math.MaxUint32), uint32(math.MaxUint32)
 	for i, x := range frequencies {
 		if x <= min0 {
 			idx0, idx1 = i, idx0

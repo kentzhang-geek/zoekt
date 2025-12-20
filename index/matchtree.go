@@ -18,11 +18,14 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"math"
 	"regexp/syntax"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/grafana/regexp"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/internal/syntaxutil"
 	"github.com/sourcegraph/zoekt/query"
@@ -442,7 +445,7 @@ func (t *docMatchTree) nextDoc() uint32 {
 			return i
 		}
 	}
-	return maxUInt32
+	return math.MaxUint32
 }
 
 func (t *bruteForceMatchTree) nextDoc() uint32 {
@@ -464,7 +467,7 @@ func (t *andMatchTree) nextDoc() uint32 {
 }
 
 func (t *orMatchTree) nextDoc() uint32 {
-	min := uint32(maxUInt32)
+	min := uint32(math.MaxUint32)
 	for _, c := range t.children {
 		m := c.nextDoc()
 		if m < min {
@@ -497,7 +500,7 @@ func (t *branchQueryMatchTree) nextDoc() uint32 {
 			return i
 		}
 	}
-	return maxUInt32
+	return math.MaxUint32
 }
 
 // all String methods
@@ -672,7 +675,7 @@ func (t *andLineMatchTree) matches(cp *contentProvider, cost int, known map[matc
 	// can return MatchesFound.
 
 	// find child with fewest candidates
-	min := maxUInt32
+	minCount := math.MaxInt
 	fewestChildren := 0
 	for ix, child := range t.children {
 		v, ok := child.(*substrMatchTree)
@@ -681,8 +684,8 @@ func (t *andLineMatchTree) matches(cp *contentProvider, cost int, known map[matc
 		if !ok || v.fileName {
 			return matchesFound
 		}
-		if len(v.current) < min {
-			min = len(v.current)
+		if len(v.current) < minCount {
+			minCount = len(v.current)
 			fewestChildren = ix
 		}
 	}
@@ -969,6 +972,7 @@ func (d *indexData) newMatchTree(q query.Q, opt matchTreeOpt) (matchTree, error)
 	if q == nil {
 		return nil, fmt.Errorf("got nil (sub)query")
 	}
+
 	switch s := q.(type) {
 	case *query.Regexp:
 		// RegexpToMatchTreeRecursive tries to distill a matchTree that matches a
@@ -1051,13 +1055,43 @@ func (d *indexData) newMatchTree(q query.Q, opt matchTreeOpt) (matchTree, error)
 			boost: s.Boost,
 		}, nil
 
+	case *query.Meta:
+		checksum := queryMetaChecksum(s.Field, s.Value)
+		cacheKeyField := "Meta"
+		if cached, ok := d.docMatchTreeCache.Get(cacheKeyField, checksum); ok {
+			return cached, nil
+		}
+
+		reposWant := make([]bool, len(d.repoMetaData))
+		for repoIdx, r := range d.repoMetaData {
+			if r.Metadata != nil {
+				if val, ok := r.Metadata[s.Field]; ok && s.Value.MatchString(val) {
+					reposWant[repoIdx] = true
+				}
+			}
+		}
+
+		mt := &docMatchTree{
+			reason:  "Meta",
+			numDocs: d.numDocs(),
+			predicate: func(docID uint32) bool {
+				repoIdx := d.repos[docID]
+				if int(repoIdx) >= len(reposWant) {
+					return false
+				}
+				return reposWant[repoIdx]
+			},
+		}
+		d.docMatchTreeCache.Add(cacheKeyField, checksum, mt)
+		return mt, nil
+
 	case *query.Substring:
 		return d.newSubstringMatchTree(s)
 
 	case *query.Branch:
 		masks := make([]uint64, 0, len(d.repoMetaData))
 		if s.Pattern == "HEAD" {
-			for i := 0; i < len(d.repoMetaData); i++ {
+			for range d.repoMetaData {
 				masks = append(masks, 1)
 			}
 		} else {
@@ -1410,4 +1444,12 @@ func isRegexpAll(r *syntax.Regexp) bool {
 
 		return false
 	}
+}
+
+func queryMetaChecksum(field string, value *regexp.Regexp) string {
+	h := xxhash.New()
+	h.Write([]byte(field))
+	h.Write([]byte{':'})
+	h.Write([]byte(value.String()))
+	return fmt.Sprintf("%x", h.Sum64())
 }

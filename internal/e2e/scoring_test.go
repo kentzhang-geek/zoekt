@@ -23,8 +23,8 @@ import (
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
 	"github.com/sourcegraph/zoekt/internal/ctags"
-	"github.com/sourcegraph/zoekt/internal/shards"
 	"github.com/sourcegraph/zoekt/query"
+	"github.com/sourcegraph/zoekt/search"
 )
 
 type scoreCase struct {
@@ -68,6 +68,11 @@ func TestFileNameMatch(t *testing.T) {
 
 func TestBM25(t *testing.T) {
 	exampleJava, err := os.ReadFile("./examples/example.java")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exampleBin, err := os.ReadFile("./examples/example.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +149,30 @@ func TestBM25(t *testing.T) {
 			language: "Go",
 			// sum-termFrequencyScore: 5.00, length-ratio: 0.00
 			wantScore: 2.07,
+		},
+		{
+			fileName: "example.py",
+			query:    &query.Substring{Pattern: "example"},
+			language: "Python",
+			// sum-termFrequencyScore: 5.00, length-ratio: 0.00
+			wantScore: 2.07,
+		},
+		{
+			// Match on test should be downweighted
+			fileName: "test_example.py",
+			query:    &query.Substring{Pattern: "example"},
+			language: "Python",
+			// sum-termFrequencyScore: 1.00, length-ratio: 0.00
+			wantScore: 1.69,
+		},
+		{
+			// Match on binary should be downweighted
+			fileName: "example.bin",
+			query:    &query.Substring{Pattern: "example"},
+			language: "",
+			content:  exampleBin,
+			// sum-termFrequencyScore: 1.00, length-ratio: 1.00
+			wantScore: 1.00,
 		},
 	}
 
@@ -680,7 +709,7 @@ func checkScoring(t *testing.T, c scoreCase, useBM25 bool, parserType ctags.CTag
 			t.Fatalf("Finish: %v", err)
 		}
 
-		ss, err := shards.NewDirectorySearcher(dir)
+		ss, err := search.NewDirectorySearcher(dir)
 		if err != nil {
 			t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 		}
@@ -721,8 +750,8 @@ func checkScoring(t *testing.T, c scoreCase, useBM25 bool, parserType ctags.CTag
 // helper to remove the tiebreaker from the score for easier comparison
 func withoutTiebreaker(fullScore float64, useBM25 bool) float64 {
 	if useBM25 {
-		// Shift by ScoreOffsetBM25 and truncate to 2 decimal places
-		return math.Trunc((fullScore/index.ScoreOffsetBM25)*100) / 100
+		// BM25 doesn't use a tiebreaker
+		return fullScore
 	}
 	return math.Trunc(fullScore / index.ScoreOffset)
 }
@@ -789,7 +818,7 @@ func TestRepoRanks(t *testing.T) {
 				t.Fatalf("Finish: %v", err)
 			}
 
-			ss, err := shards.NewDirectorySearcher(dir)
+			ss, err := search.NewDirectorySearcher(dir)
 			if err != nil {
 				t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 			}

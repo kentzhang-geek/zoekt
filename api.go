@@ -587,6 +587,9 @@ type Repository struct {
 	// The repository URL.
 	URL string
 
+	// Additional metadata about the repository.
+	Metadata map[string]string
+
 	// The physical source where this repo came from, eg. full
 	// path to the zip filename or git repository directory. This
 	// will not be exposed in the UI, but can be used to detect
@@ -647,8 +650,8 @@ type Repository struct {
 func (r *Repository) UnmarshalJSON(data []byte) error {
 	// We define a new type so that we can use json.Unmarshal
 	// without recursing into this same method.
-	type repository *Repository
-	repo := repository(r)
+	type repository Repository
+	repo := (*repository)(r)
 
 	err := json.Unmarshal(data, repo)
 	if err != nil {

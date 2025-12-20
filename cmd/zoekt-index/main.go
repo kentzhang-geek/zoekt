@@ -25,9 +25,10 @@ import (
 	"runtime/pprof"
 	"strings"
 
+	"go.uber.org/automaxprocs/maxprocs"
+
 	"github.com/sourcegraph/zoekt/cmd"
 	"github.com/sourcegraph/zoekt/index"
-	"go.uber.org/automaxprocs/maxprocs"
 )
 
 type fileInfo struct {
@@ -235,6 +236,7 @@ func printUsage() {
 func main() {
 	cpuProfile := flag.String("cpu_profile", "", "write cpu profile to file")
 	ignoreDirs := flag.String("ignore_dirs", ".git,.hg,.svn", "comma separated list of directories to ignore.")
+	metaFile := flag.String("meta", "", "path to .meta JSON file with repository description")
 	// Add output index directory flag with default to our custom location
 	indexDir := flag.String("index_dir", "", "directory to write index files (defaults to ~/.zoekt/indexdb)")
 	flag.Parse()
@@ -385,6 +387,18 @@ func main() {
 			}
 		}
 	}
+
+	if *metaFile != "" {
+		// Read and parse the .meta JSON file into opts.RepositoryDescription
+		data, err := os.ReadFile(*metaFile)
+		if err != nil {
+			log.Fatalf("failed to read .meta file %s: %v", *metaFile, err)
+		}
+		if err := json.Unmarshal(data, &opts.RepositoryDescription); err != nil {
+			log.Fatalf("failed to decode .meta file %s: %v", *metaFile, err)
+		}
+	}
+
 	for _, arg := range flag.Args() {
 		opts.RepositoryDescription.Source = arg
 		if err := indexArgWithFilters(arg, *opts, ignoreDirMap, nil); err != nil {
@@ -428,7 +442,7 @@ func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileEx
 		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
 			if err := builder.Add(index.Document{
 				Name:       displayName,
-				SkipReason: fmt.Sprintf("document size %d larger than limit %d", f.size, opts.SizeMax),
+				SkipReason: index.SkipReasonTooLarge,
 			}); err != nil {
 				return err
 			}
@@ -485,7 +499,7 @@ func indexArgWithFilters(arg string, opts index.Options, ignore map[string]struc
 		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
 			if err := builder.Add(index.Document{
 				Name:       displayName,
-				SkipReason: fmt.Sprintf("document size %d larger than limit %d", f.size, opts.SizeMax),
+				SkipReason: index.SkipReasonTooLarge,
 			}); err != nil {
 				return err
 			}

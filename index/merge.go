@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/sourcegraph/zoekt"
-	"github.com/sourcegraph/zoekt/internal/tenant"
 )
 
 // Merge files into a compound shard in dstDir. Merge returns tmpName and a
@@ -117,6 +116,12 @@ func merge(ds ...*indexData) (*ShardBuilder, error) {
 				}
 				lastRepoID = repoID
 
+				// Initialize repo metadata if it does not already exist.
+				repo := d.repoMetaData[repoID]
+				if repo.Metadata == nil {
+					repo.Metadata = make(map[string]string)
+				}
+
 				// TODO we are losing empty repos on merging since we only get here if
 				// there is an associated document.
 
@@ -134,18 +139,64 @@ func merge(ds ...*indexData) (*ShardBuilder, error) {
 	return sb, nil
 }
 
-// Explode takes an IndexFile f and creates 1 simple shard per repository
-// contained in f. Explode returns a map of tmpName -> dstName. It is the
-// responsibility of the caller to rename the temporary shard(s) and delete the
-// input shard.
-func Explode(dstDir string, f IndexFile) (map[string]string, error) {
-	return explode(dstDir, f)
+// Explode takes an input shard and creates 1 simple shard per repository. It is
+// a wrapper around explode that takes care of removing the input shard and
+// renaming the temporary shards.
+func Explode(dstDir string, inputShard string) error {
+	f, err := os.Open(inputShard)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	indexFile, err := NewIndexFile(f)
+	if err != nil {
+		return err
+	}
+	defer indexFile.Close()
+
+	exploded, err := explode(dstDir, indexFile)
+	defer func() {
+		// best effort removal of tmp files. If os.Remove fails, indexserver will delete
+		// the leftover tmp files during the next cleanup.
+		for tmpFn := range exploded {
+			os.Remove(tmpFn)
+		}
+	}()
+	if err != nil {
+		return fmt.Errorf("zoekt.Explode: %w", err)
+	}
+
+	// remove the input shard first to avoid duplicate indexes. In the worst case,
+	// the process is interrupted just after we delete the compound shard, in which
+	// case we have to reindex the lost repos.
+	paths, err := IndexFilePaths(inputShard)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		err = os.Remove(path)
+		if err != nil {
+			return err
+		}
+	}
+
+	// best effort rename shards.
+	for tmpFn, dstFn := range exploded {
+		if err := os.Rename(tmpFn, dstFn); err != nil {
+			log.Printf("explode: rename failed: %s", err)
+		}
+	}
+
+	return nil
 }
 
 type shardBuilderFunc func(ib *ShardBuilder)
 
-// explode offers a richer signature compared to Explode for testing. You
-// probably want to call Explode instead.
+// explode takes an IndexFile f and creates 1 simple shard per repository
+// contained in f. explode returns a map of tmpName -> dstName. It is the
+// responsibility of the caller to rename the temporary shard(s) and delete the
+// input shard.
 func explode(dstDir string, f IndexFile, ibFuncs ...shardBuilderFunc) (map[string]string, error) {
 	searcher, err := NewSearcher(f)
 	if err != nil {
@@ -163,14 +214,12 @@ func explode(dstDir string, f IndexFile, ibFuncs ...shardBuilderFunc) (map[strin
 			ibFunc(ib)
 		}
 
-		prefix := ""
-		if tenant.EnforceTenant() {
-			prefix = tenant.SrcPrefix(ib.repoList[0].TenantID, ib.repoList[0].ID)
-		} else {
-			prefix = ib.repoList[0].Name
+		opts := Options{
+			IndexDir:              dstDir,
+			RepositoryDescription: ib.repoList[0],
 		}
 
-		shardName := ShardName(dstDir, prefix, ib.indexFormatVersion, 0)
+		shardName := opts.shardNameVersion(ib.indexFormatVersion, 0)
 		shardNameTmp := shardName + ".tmp"
 		shardNames[shardNameTmp] = shardName
 		return builderWriteAll(shardNameTmp, ib)

@@ -17,16 +17,16 @@ package index
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
-    "syscall"
-    "unsafe"
-
+	"syscall"
+	"unsafe"
 )
 
 type mmapedIndexFile struct {
 	name string
 	size uint32
-    hMap syscall.Handle
+	hMap syscall.Handle
 	data []byte
 }
 
@@ -46,12 +46,12 @@ func (f *mmapedIndexFile) Size() (uint32, error) {
 }
 
 func (f *mmapedIndexFile) Close() {
-    if err := syscall.UnmapViewOfFile(uintptr(unsafe.Pointer(&f.data[0]))); err != nil {
+	if err := syscall.UnmapViewOfFile(uintptr(unsafe.Pointer(&f.data[0]))); err != nil {
 		log.Printf("WARN failed to Munmap %s: %v", f.name, err)
-    }
-    if err := syscall.CloseHandle(f.hMap); err != nil {
+	}
+	if err := syscall.CloseHandle(f.hMap); err != nil {
 		log.Printf("WARN failed to Munmap %s: %v", f.name, err)
-    }
+	}
 }
 
 // NewIndexFile returns a new index file. The index file takes
@@ -65,7 +65,7 @@ func NewIndexFile(f *os.File) (IndexFile, error) {
 	}
 
 	sz := fi.Size()
-	if sz >= maxUInt32 {
+	if sz >= math.MaxUint32 {
 		return nil, fmt.Errorf("file %s too large: %d", f.Name(), sz)
 	}
 	r := &mmapedIndexFile{
@@ -73,18 +73,18 @@ func NewIndexFile(f *os.File) (IndexFile, error) {
 		size: uint32(sz),
 	}
 
-    hMap, err := syscall.CreateFileMapping(syscall.Handle(f.Fd()), nil, syscall.PAGE_READONLY, 0, uint32(r.size), nil)
-    if err != nil {
-        return nil, err
-    }
-    r.hMap = hMap
-    addr, err := syscall.MapViewOfFile(r.hMap, syscall.FILE_MAP_READ, 0, 0, uintptr(r.size))
-    if err != nil {
-        syscall.CloseHandle(hMap)
-        return nil, err
-    }
+	hMap, err := syscall.CreateFileMapping(syscall.Handle(f.Fd()), nil, syscall.PAGE_READONLY, 0, uint32(r.size), nil)
+	if err != nil {
+		return nil, err
+	}
+	r.hMap = hMap
+	addr, err := syscall.MapViewOfFile(r.hMap, syscall.FILE_MAP_READ, 0, 0, uintptr(r.size))
+	if err != nil {
+		syscall.CloseHandle(hMap)
+		return nil, err
+	}
 
-    r.data = (*[1 << 30]byte)(unsafe.Pointer(addr))[:r.size]
+	r.data = (*[1 << 30]byte)(unsafe.Pointer(addr))[:r.size]
 	if err != nil {
 		return nil, err
 	}

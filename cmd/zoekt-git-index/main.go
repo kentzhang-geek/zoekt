@@ -25,11 +25,12 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/sourcegraph/zoekt/cmd"
-	"github.com/sourcegraph/zoekt/internal/ctags"
-	"github.com/sourcegraph/zoekt/internal/gitindex"
-	"github.com/sourcegraph/zoekt/internal/profiler"
 	"go.uber.org/automaxprocs/maxprocs"
+
+	"github.com/sourcegraph/zoekt/cmd"
+	"github.com/sourcegraph/zoekt/gitindex"
+	"github.com/sourcegraph/zoekt/internal/ctags"
+	"github.com/sourcegraph/zoekt/internal/profiler"
 )
 
 func run() int {

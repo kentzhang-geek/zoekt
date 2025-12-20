@@ -17,7 +17,6 @@
 package index
 
 import (
-	"cmp"
 	"crypto/sha1"
 	"flag"
 	"fmt"
@@ -41,8 +40,11 @@ import (
 	"github.com/go-enry/go-enry/v2"
 	"github.com/rs/xid"
 
+	"maps"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/internal/ctags"
+	"github.com/sourcegraph/zoekt/internal/tenant"
 )
 
 var DefaultDir = filepath.Join(os.Getenv("HOME"), ".zoekt")
@@ -117,9 +119,6 @@ type Options struct {
 	//
 	// Note: heap checking is "best effort", and it's possible for the process to OOM without triggering the heap profile.
 	HeapProfileTriggerBytes uint64
-
-	// ShardPrefix is the prefix of the shard. It defaults to the repository name.
-	ShardPrefix string
 }
 
 // HashOptions contains only the options in Options that upon modification leads to IndexState of IndexStateMismatch during the next index building.
@@ -146,10 +145,10 @@ func (o *Options) GetHash() string {
 	hasher := sha1.New()
 
 	hasher.Write([]byte(h.ctagsPath))
-	hasher.Write([]byte(fmt.Sprintf("%t", h.cTagsMustSucceed)))
-	hasher.Write([]byte(fmt.Sprintf("%d", h.sizeMax)))
-	hasher.Write([]byte(fmt.Sprintf("%q", h.largeFiles)))
-	hasher.Write([]byte(fmt.Sprintf("%t", h.disableCTags)))
+	hasher.Write(fmt.Appendf(nil, "%t", h.cTagsMustSucceed))
+	hasher.Write(fmt.Appendf(nil, "%d", h.sizeMax))
+	hasher.Write(fmt.Appendf(nil, "%q", h.largeFiles))
+	hasher.Write(fmt.Appendf(nil, "%t", h.disableCTags))
 
 	return fmt.Sprintf("%x", hasher.Sum(nil))
 }
@@ -184,7 +183,6 @@ func (o *Options) Flags(fs *flag.FlagSet) {
 	fs.StringVar(&o.IndexDir, "index", x.IndexDir, "directory for search indices")
 	fs.BoolVar(&o.CTagsMustSucceed, "require_ctags", x.CTagsMustSucceed, "If set, ctags calls must succeed.")
 	fs.Var(largeFilesFlag{o}, "large_file", "A glob pattern where matching files are to be index regardless of their size. You can add multiple patterns by setting this more than once.")
-	fs.StringVar(&o.ShardPrefix, "shard_prefix", x.ShardPrefix, "the prefix of the shard. Defaults to repository name")
 
 	// Sourcegraph specific
 	fs.BoolVar(&o.DisableCTags, "disable_ctags", x.DisableCTags, "If set, ctags will not be called.")
@@ -230,10 +228,6 @@ func (o *Options) Args() []string {
 
 	if o.ShardMerging {
 		args = append(args, "-shard_merging")
-	}
-
-	if o.ShardPrefix != "" {
-		args = append(args, "-shard_prefix", o.ShardPrefix)
 	}
 
 	return args
@@ -339,7 +333,17 @@ func (o *Options) shardName(n int) string {
 }
 
 func (o *Options) shardNameVersion(version, n int) string {
-	return ShardName(o.IndexDir, cmp.Or(o.ShardPrefix, o.RepositoryDescription.Name), version, n)
+	var prefix string
+
+	// Sourcegraph specific: We use IDs in shard names on multi-tenant
+	// instances to prevent conflicts.
+	if tenant.UseIDBasedShardNames() {
+		prefix = fmt.Sprintf("%09d_%09d", o.RepositoryDescription.TenantID, o.RepositoryDescription.ID)
+	} else {
+		prefix = o.RepositoryDescription.Name
+	}
+
+	return shardName(o.IndexDir, prefix, version, n)
 }
 
 type IndexState string
@@ -600,17 +604,17 @@ func (b *Builder) Add(doc Document) error {
 		// we pass through a part of the source tree with binary/large
 		// files, the corresponding shard would be mostly empty, so
 		// insert a reason here too.
-		doc.SkipReason = fmt.Sprintf("document size %d larger than limit %d", len(doc.Content), b.opts.SizeMax)
-	} else if err := b.docChecker.Check(doc.Content, b.opts.TrigramMax, allowLargeFile); err != nil {
-		doc.SkipReason = err.Error()
+		doc.SkipReason = SkipReasonTooLarge
+	} else if skip := b.docChecker.Check(doc.Content, b.opts.TrigramMax, allowLargeFile); skip != SkipReasonNone {
+		doc.SkipReason = skip
 	}
 
 	b.todo = append(b.todo, &doc)
 
-	if doc.SkipReason == "" {
+	if doc.SkipReason == SkipReasonNone {
 		b.size += len(doc.Name) + len(doc.Content)
 	} else {
-		b.size += len(doc.Name) + len(doc.SkipReason)
+		b.size += len(doc.Name)
 		// Drop the content if we are skipping the document. Skipped content is not counted towards the
 		// shard size limit, so otherwise we might buffer too much data in memory before flushing.
 		doc.Content = nil
@@ -657,9 +661,7 @@ func (b *Builder) Finish() error {
 
 	// map of temporary -> final names for all updated shards + shard metadata files
 	artifactPaths := make(map[string]string)
-	for tmp, final := range b.finishedShards {
-		artifactPaths[tmp] = final
-	}
+	maps.Copy(artifactPaths, b.finishedShards)
 
 	oldShards := b.opts.FindAllShards()
 
@@ -711,6 +713,8 @@ func (b *Builder) Finish() error {
 			repository.Branches = b.opts.RepositoryDescription.Branches
 
 			repository.LatestCommitDate = b.opts.RepositoryDescription.LatestCommitDate
+
+			repository.Metadata = b.opts.RepositoryDescription.Metadata
 
 			tempPath, finalPath, err := JsonMarshalRepoMetaTemp(shard, repository)
 			if err != nil {
@@ -853,16 +857,6 @@ func squashRange(j int) float64 {
 	return x / (1 + x)
 }
 
-// IsLowPriority takes a file name and makes an educated guess about its priority
-// in search results. A file is considered low priority if it looks like a test,
-// vendored, or generated file.
-//
-// These 'priority' criteria affects how documents are ordered within a shard. It's
-// also used to help guess a file's rank when we're missing ranking information.
-func IsLowPriority(path string, content []byte) bool {
-	return enry.IsTest(path) || enry.IsVendor(path) || enry.IsGenerated(path, content)
-}
-
 type rankedDoc struct {
 	*Document
 	rank []float64
@@ -874,7 +868,7 @@ type rankedDoc struct {
 // have a higher chance of being searched before limits kick in.
 func rank(d *Document, origIdx int) []float64 {
 	skipped := 0.0
-	if d.SkipReason != "" {
+	if d.SkipReason != SkipReasonNone {
 		skipped = 1.0
 	}
 
@@ -1081,27 +1075,6 @@ type deltaIndexOptionsMismatchError struct {
 
 func (e *deltaIndexOptionsMismatchError) Error() string {
 	return fmt.Sprintf("one or more index options for shard %q do not match Builder's index options. These index option updates are incompatible with delta build. New index options: %+v", e.shardName, e.newOptions)
-}
-
-// Document holds a document (file) to index.
-type Document struct {
-	Name              string
-	Content           []byte
-	Branches          []string
-	SubRepositoryPath string
-	Language          string
-
-	// If set, something is wrong with the file contents, and this
-	// is the reason it wasn't indexed.
-	SkipReason string
-
-	// Document sections for symbols. Offsets should use bytes.
-	Symbols         []DocumentSection
-	SymbolsMetaData []*zoekt.Symbol
-}
-
-type DocumentSection struct {
-	Start, End uint32
 }
 
 // umask holds the Umask of the current process

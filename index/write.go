@@ -169,6 +169,10 @@ func (b *ShardBuilder) Write(out io.Writer) error {
 	w.Write(b.languages)
 	toc.languages.end(w)
 
+	toc.categories.start(w)
+	w.Write(b.categories)
+	toc.categories.end(w)
+
 	toc.runeDocSections.start(w)
 	w.Write(marshalDocSections(b.runeDocSections))
 	toc.runeDocSections.end(w)
@@ -225,7 +229,7 @@ func (b *ShardBuilder) Write(out io.Writer) error {
 	return w.err
 }
 
-func (b *ShardBuilder) writeJSON(data interface{}, sec *simpleSection, w *writer) error {
+func (b *ShardBuilder) writeJSON(data any, sec *simpleSection, w *writer) error {
 	blob, err := json.Marshal(data)
 	if err != nil {
 		return err

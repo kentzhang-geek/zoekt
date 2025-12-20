@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/grafana/regexp"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/query"
 )
@@ -1163,7 +1164,7 @@ func TestFileNameBoundary(t *testing.T) {
 
 func TestDocumentOrder(t *testing.T) {
 	var docs []Document
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		docs = append(docs, Document{Name: fmt.Sprintf("f%d", i), Content: []byte("needle")})
 	}
 
@@ -1259,7 +1260,7 @@ func TestBranchMask(t *testing.T) {
 func TestBranchLimit(t *testing.T) {
 	for limit := 64; limit <= 65; limit++ {
 		r := &zoekt.Repository{}
-		for i := 0; i < limit; i++ {
+		for i := range limit {
 			s := fmt.Sprintf("b%d", i)
 			r.Branches = append(r.Branches, zoekt.RepositoryBranch{
 				s, "v-" + s,
@@ -2142,6 +2143,39 @@ func TestMetadata(t *testing.T) {
 	}
 }
 
+func TestRepoWithMetadata(t *testing.T) {
+	sb := newShardBuilder()
+	sb.repoList = []zoekt.Repository{
+		{
+			Name:     "repo1",
+			Metadata: map[string]string{"language": "go", "custom_key": "value"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := sb.Write(&buf); err != nil {
+		t.Fatalf("failed to write shard: %v", err)
+	}
+
+	// Simulate reading the shard back
+	f := &memSeeker{buf.Bytes()}
+	repoMetaData, _, err := ReadMetadata(f)
+	if err != nil {
+		t.Fatalf("failed to read metadata: %v", err)
+	}
+
+	// Verify the metadata
+	if len(repoMetaData) != 1 {
+		t.Fatalf("expected 1 repository, got %d", len(repoMetaData))
+	}
+	if got, want := repoMetaData[0].Metadata["language"], "go"; got != want {
+		t.Errorf("expected metadata 'language' to be %q, got %q", want, got)
+	}
+	if got, want := repoMetaData[0].Metadata["custom_key"], "value"; got != want {
+		t.Errorf("expected metadata 'custom_key' to be %q, got %q", want, got)
+	}
+}
+
 func TestOr(t *testing.T) {
 	b := testShardBuilder(t, nil,
 		Document{Name: "f1", Content: []byte("needle")},
@@ -2402,7 +2436,7 @@ func TestUnicodeVariableLength(t *testing.T) {
 
 	t.Run("LineMatches", func(t *testing.T) {
 		b := testShardBuilder(t, nil,
-			Document{Name: "f1", Content: []byte(corpus)})
+			Document{Name: "f1", Content: corpus})
 
 		res := searchForTest(t, b, &query.Substring{Pattern: needle, Content: true})
 		if len(res.Files) != 1 {
@@ -2412,7 +2446,7 @@ func TestUnicodeVariableLength(t *testing.T) {
 
 	t.Run("ChunkMatches", func(t *testing.T) {
 		b := testShardBuilder(t, nil,
-			Document{Name: "f1", Content: []byte(corpus)})
+			Document{Name: "f1", Content: corpus})
 
 		res := searchForTest(t, b, &query.Substring{Pattern: needle, Content: true}, chunkOpts)
 		if len(res.Files) != 1 {
@@ -3190,7 +3224,7 @@ func TestSymbolRegexpAll(t *testing.T) {
 			}
 
 			for j, sec := range want.Symbols {
-				if sec.Start != uint32(got[j].Start.ByteOffset) {
+				if sec.Start != got[j].Start.ByteOffset {
 					t.Fatalf("got offset %d, want %d in doc %s", got[j].Start.ByteOffset, sec.Start, want.Name)
 				}
 			}
@@ -3371,24 +3405,24 @@ func TestDocChecker(t *testing.T) {
 
 	// Test valid and invalid text
 	for _, text := range []string{"", "simple ascii", "símplé unicödé", "\uFEFFwith utf8 'bom'", "with \uFFFD unicode replacement char"} {
-		if err := docChecker.Check([]byte(text), 20000, false); err != nil {
-			t.Errorf("Check(%q): %v", text, err)
+		if skip := docChecker.Check([]byte(text), 20000, false); skip != SkipReasonNone {
+			t.Errorf("Check(%q): %v", text, skip)
 		}
 	}
 	for _, text := range []string{"zero\x00byte", "xx", "0123456789abcdefghi"} {
-		if err := docChecker.Check([]byte(text), 15, false); err == nil {
+		if skip := docChecker.Check([]byte(text), 15, false); skip == SkipReasonNone {
 			t.Errorf("Check(%q) succeeded", text)
 		}
 	}
 
 	// Test valid and invalid text with an allowed large file
 	for _, text := range []string{"0123456789abcdefghi", "qwertyuiopasdfghjklzxcvbnm"} {
-		if err := docChecker.Check([]byte(text), 15, true); err != nil {
-			t.Errorf("Check(%q): %v", text, err)
+		if skip := docChecker.Check([]byte(text), 15, true); skip != SkipReasonNone {
+			t.Errorf("Check(%q): %v", text, skip)
 		}
 	}
 	for _, text := range []string{"zero\x00byte", "xx"} {
-		if err := docChecker.Check([]byte(text), 15, true); err == nil {
+		if skip := docChecker.Check([]byte(text), 15, true); skip == SkipReasonNone {
 			t.Errorf("Check(%q) succeeded", text)
 		}
 	}
@@ -3952,7 +3986,7 @@ func TestWordSearch(t *testing.T) {
 func BenchmarkScoreChunkMatches(b *testing.B) {
 	ctx := context.Background()
 	var builder strings.Builder
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		builder.WriteString(fmt.Sprintf("line-%d one one one two two two three three three four four four five five\n", i))
 	}
 

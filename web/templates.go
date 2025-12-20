@@ -34,6 +34,7 @@ var TemplateText = map[string]string{
 <style>
   #navsearchbox { width: 350px !important; }
   #maxhits { width: 100px !important; }
+  #context { width: 70px !important; }
   .label-dup {
     border-width: 1px !important;
     border-style: solid !important;
@@ -41,6 +42,7 @@ var TemplateText = map[string]string{
     color: black;
   }
   .noselect {
+    color: #999;    
     user-select: none;
   }
   a.label-dup:hover {
@@ -545,6 +547,10 @@ var TemplateText = map[string]string{
             <div class="input-group-addon">Max Results</div>
             <input class="form-control" type="number" id="maxhits" name="num" value="{{.Num}}">
           </div>
+          <div class="input-group">
+            <div class="input-group-addon">Context Lines</div>
+            <input class="form-control" id="context" name="ctx" type="number" value="{{.Ctx}}">
+          </div>
           <button class="btn btn-primary">Search</button>
           <!--Hack: we use a hidden form field to keep track of the debug flag across searches-->
           {{if .Debug}}<input id="debug" name="debug" type="hidden" value="{{.Debug}}">{{end}}
@@ -783,8 +789,10 @@ document.onkeydown=function(e){
         {{range $f.Matches}}
         {{if gt .LineNum 0}}
         <tr style="border-top: 1px solid #e0e0e0;">
-          <td style="background-color: rgba(238, 238, 255, 0.6); border-top: 1px solid #e0e0e0;">
-            <pre class="inline-pre" style="margin-bottom: 0;"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
+          <td colspan="2" style="background-color: rgba(238, 238, 255, 0.6); border-top: 1px solid #e0e0e0;">
+            <pre class="inline-pre" style="margin-bottom: 0;"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{$beforeLines := AddLineNumbers .Before .LineNum true}}{{range $line := $beforeLines}}<span class="noselect"><u>{{$line.LineNum}}</u>:</span> {{$line.Content}}
+{{end}}{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}}{{$afterLines := AddLineNumbers .After .LineNum false}}{{range $line := $afterLines}}
+<span class="noselect"><u>{{$line.LineNum}}</u>:</span> {{$line.Content}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
           </td>
         </tr>
         {{end}}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +12,10 @@ import (
 	"github.com/grafana/regexp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sourcegraph/zoekt/index"
 	"go.uber.org/atomic"
+
+	"github.com/sourcegraph/zoekt/index"
+	"github.com/sourcegraph/zoekt/internal/tenant"
 )
 
 var metricShardMergingRunning = promauto.NewGauge(prometheus.GaugeOpts{
@@ -41,6 +44,12 @@ var mergeRunning atomic.Bool
 
 func defaultMergeCmd(args ...string) *exec.Cmd {
 	cmd := exec.Command("zoekt-merge-index", "merge")
+	cmd.Args = append(cmd.Args, args...)
+	return cmd
+}
+
+func defaultExplodeCmd(args ...string) *exec.Cmd {
+	cmd := exec.Command("zoekt-merge-index", "explode")
 	cmd.Args = append(cmd.Args, args...)
 	return cmd
 }
@@ -232,4 +241,42 @@ type compound struct {
 func (c *compound) add(cand candidate) {
 	c.shards = append(c.shards, cand)
 	c.size += cand.sizeBytes
+}
+
+// explodeTenantCompoundShards explodes all compound shards that have repos from
+// the tenant in question. The caller must hold the global lock.
+func (s *Server) explodeTenantCompoundShards(ctx context.Context, explodeFunc func(path string) error) error {
+	tnt, err := tenant.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+
+	paths, err := filepath.Glob(filepath.Join(s.IndexDir, "compound-*"))
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+nextCompoundShard:
+	for _, path := range paths {
+		// We don't use ReadMetadataPathAlive because we want to detect
+		// tombstoned repos, too.
+		repos, _, err := index.ReadMetadataPath(path)
+		if err != nil {
+			return err
+		}
+		for _, repo := range repos {
+			if repo.TenantID == tnt.ID() {
+				err := explodeFunc(path)
+				if err != nil {
+					return err
+				}
+
+				continue nextCompoundShard
+			}
+		}
+	}
+	return nil
 }

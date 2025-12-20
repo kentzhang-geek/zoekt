@@ -32,13 +32,14 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/grafana/regexp"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
-	"github.com/sourcegraph/zoekt/internal/shards"
 	"github.com/sourcegraph/zoekt/internal/tenant"
 	"github.com/sourcegraph/zoekt/internal/tenant/tenanttest"
 	"github.com/sourcegraph/zoekt/query"
-	"github.com/stretchr/testify/require"
+	"github.com/sourcegraph/zoekt/search"
 )
 
 func TestBasicIndexing(t *testing.T) {
@@ -59,7 +60,7 @@ func TestBasicIndexing(t *testing.T) {
 		t.Fatalf("NewBuilder: %v", err)
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d", i)
 		if err := b.AddFile("F"+s, []byte(strings.Repeat(s, 1000))); err != nil {
 			t.Fatal(err)
@@ -92,7 +93,7 @@ func TestBasicIndexing(t *testing.T) {
 		}
 	}
 
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -121,7 +122,7 @@ func TestBasicIndexing(t *testing.T) {
 	t.Run("meta file", func(t *testing.T) {
 		// use retryTest to allow for the directory watcher to notice the meta
 		// file
-		retryTest(t, func(fatalf func(format string, args ...interface{})) {
+		retryTest(t, func(fatalf func(format string, args ...any)) {
 			// Add a .meta file for each shard with repo.Name set to
 			// "repo-mutated". We do this inside retry helper since we have noticed
 			// some flakiness on github CI.
@@ -182,7 +183,7 @@ func TestSearchTenant(t *testing.T) {
 		t.Fatalf("NewBuilder: %v", err)
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d", i)
 		if err := b.AddFile("F"+s, []byte(strings.Repeat(s, 1000))); err != nil {
 			t.Fatal(err)
@@ -215,7 +216,7 @@ func TestSearchTenant(t *testing.T) {
 		}
 	}
 
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -271,7 +272,7 @@ func TestListTenant(t *testing.T) {
 		t.Fatalf("want a shard, got %v", fs)
 	}
 
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -291,7 +292,7 @@ func TestListTenant(t *testing.T) {
 
 // retryTest will retry f until min(t.Deadline(), time.Minute). It returns
 // once f doesn't call fatalf.
-func retryTest(t *testing.T, f func(fatalf func(format string, args ...interface{}))) {
+func retryTest(t *testing.T, f func(fatalf func(format string, args ...any))) {
 	t.Helper()
 
 	sleep := 10 * time.Millisecond
@@ -306,7 +307,7 @@ func retryTest(t *testing.T, f func(fatalf func(format string, args ...interface
 		go func() {
 			defer close(done)
 
-			f(func(format string, args ...interface{}) {
+			f(func(format string, args ...any) {
 				runtime.Goexit()
 			})
 
@@ -348,7 +349,7 @@ func TestLargeFileOption(t *testing.T) {
 		t.Fatalf("NewBuilder: %v", err)
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d", i)
 		if err := b.AddFile("F"+s, []byte(strings.Repeat("a", sizeMax+1))); err != nil {
 			t.Fatal(err)
@@ -359,7 +360,7 @@ func TestLargeFileOption(t *testing.T) {
 		t.Errorf("Finish: %v", err)
 	}
 
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -406,7 +407,7 @@ func TestUpdate(t *testing.T) {
 			t.Errorf("Finish: %v", err)
 		}
 	}
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -493,7 +494,7 @@ func TestDeleteOldShards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d\n", i)
 		if err := b.AddFile("F"+s, []byte(strings.Repeat(s, 1024/2))); err != nil {
 			t.Errorf("AddFile: %v", err)
@@ -524,7 +525,7 @@ func TestDeleteOldShards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		s := fmt.Sprintf("%d\n", i)
 		if err := b.AddFile("F"+s, []byte(strings.Repeat(s, 1024/2))); err != nil {
 			t.Fatal(err)
@@ -582,7 +583,7 @@ func TestEmptyContent(t *testing.T) {
 		t.Fatalf("want a shard, got %v", fs)
 	}
 
-	ss, err := shards.NewDirectorySearcher(dir)
+	ss, err := search.NewDirectorySearcher(dir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", dir, err)
 	}
@@ -749,7 +750,7 @@ func TestDeltaShards(t *testing.T) {
 				}
 
 				// Call b.Finish() multiple times to ensure that it is idempotent
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 
 					err = b.Finish()
 					if err != nil {
@@ -767,7 +768,7 @@ func TestDeltaShards(t *testing.T) {
 					t.Errorf("unexpected diff in index state (-want +got):\n%s", diff)
 				}
 
-				ss, err := shards.NewDirectorySearcher(indexDir)
+				ss, err := search.NewDirectorySearcher(indexDir)
 				if err != nil {
 					t.Fatalf("step %q: NewDirectorySearcher(%s): %s", step.name, indexDir, err)
 				}

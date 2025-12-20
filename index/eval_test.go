@@ -19,6 +19,7 @@ import (
 	"hash/fnv"
 	"reflect"
 	"regexp/syntax"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/grafana/regexp"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/query"
 )
@@ -415,5 +417,74 @@ func TestGatherBranches(t *testing.T) {
 		if d := cmp.Diff(want[f.FileName], f.Branches); d != "" {
 			t.Fatalf("-want,+got:\n%s", d)
 		}
+	}
+}
+
+func TestGatherBranchesMany(t *testing.T) {
+	content := []byte("dummy")
+	manyBranchNames := []string{}
+	manyBranches := []zoekt.RepositoryBranch{}
+	for i := range 64 {
+		branchName := "branch-" + strconv.Itoa(i)
+		manyBranchNames = append(manyBranchNames, branchName)
+		manyBranches = append(manyBranches, zoekt.RepositoryBranch{
+			Name:    branchName,
+			Version: "v1"})
+	}
+	b := testShardBuilder(t, &zoekt.Repository{
+		Branches: manyBranches,
+	}, Document{Name: "f1", Content: content, Branches: manyBranchNames})
+
+	d := searcherForTest(t, b).(*indexData)
+
+	sr, err := d.Search(
+		context.Background(),
+		&query.Substring{
+			Pattern:       "dummy",
+			CaseSensitive: false,
+		},
+		&zoekt.SearchOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string][]string{
+		"f1": manyBranchNames,
+	}
+
+	if len(sr.Files) != 1 {
+		t.Fatalf("len(sr.Files): want %d, got %d", 1, len(sr.Files))
+	}
+
+	for _, f := range sr.Files {
+		if d := cmp.Diff(want[f.FileName], f.Branches); d != "" {
+			t.Fatalf("-want,+got:\n%s", d)
+		}
+	}
+}
+
+func TestSimplifyMeta(t *testing.T) {
+	re := regexp.MustCompile("^stable$")
+	d := compoundReposShard(t, "foo", "bar")
+
+	// Inject metadata into the fake repos
+	d.repoMetaData[0].Metadata = map[string]string{"release": "stable"}
+	d.repoMetaData[1].Metadata = map[string]string{"release": "beta"}
+
+	all := &query.Meta{Field: "release", Value: regexp.MustCompile(".*")}
+	some := &query.Meta{Field: "release", Value: re}
+	none := &query.Meta{Field: "release", Value: regexp.MustCompile("^nonexistent$")}
+
+	if got := d.simplify(all); !reflect.DeepEqual(got, &query.Const{Value: true}) {
+		t.Errorf("simplify(all): got %v, want Const(true)", got)
+	}
+
+	if got := d.simplify(some); got != some {
+		t.Errorf("simplify(some): got %v, want unchanged", got)
+	}
+
+	if got := d.simplify(none); !reflect.DeepEqual(got, &query.Const{Value: false}) {
+		t.Errorf("simplify(none): got %v, want Const(false)", got)
 	}
 }

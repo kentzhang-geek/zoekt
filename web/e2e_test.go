@@ -30,9 +30,9 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/sourcegraph/zoekt/index"
 
 	"github.com/sourcegraph/zoekt"
+	"github.com/sourcegraph/zoekt/index"
 	"github.com/sourcegraph/zoekt/query"
 )
 
@@ -806,7 +806,7 @@ func TestDupResult(t *testing.T) {
 		t.Fatalf("NewShardBuilder: %v", err)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := b.Add(index.Document{
 			Name:    fmt.Sprintf("file%d", i),
 			Content: []byte("bla"),
@@ -912,7 +912,7 @@ func TestHealthz(t *testing.T) {
 		t.Fatalf("NewShardBuilder: %v", err)
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := b.Add(index.Document{
 			Name:    fmt.Sprintf("file%d", i),
 			Content: []byte("bla"),

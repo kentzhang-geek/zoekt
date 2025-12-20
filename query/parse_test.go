@@ -125,7 +125,27 @@ func TestParseQuery(t *testing.T) {
 		{"or abc", nil},
 		{"def or or abc", nil},
 
+		// unbalanced parentheses
+		{"(", nil},
+		{"((", nil},
+		{"(((", nil},
+		{")", nil},
+		{"))", nil},
+		{")))", nil},
+		{"foo)", nil},
+		{"foo))", nil},
+		{"foo)))", nil},
+		{"(foo", nil},
+		{"((foo", nil},
+		{"(((foo", nil},
+		{"(foo))", nil},
+		{"(((foo))", nil},
+
 		{"", &Const{Value: true}},
+
+		// whitespace
+		{"  (  )  ", &Const{Value: true}},
+		{"  ( foo )  ", &Substring{Pattern: "foo"}},
 	} {
 		got, err := Parse(c.in)
 		if (c.want == nil) != (err != nil) {
@@ -177,5 +197,74 @@ func TestTokenize(t *testing.T) {
 		if string(tok.Text) != c.text {
 			t.Errorf("%s: got text %q, want %q", c.in, tok.Text, c.text)
 		}
+	}
+}
+
+func TestMetaQueryParsing(t *testing.T) {
+	cases := []struct {
+		input   string
+		field   string
+		pattern string
+		err     bool
+	}{
+		{
+			input:   "meta.visibility_level:20",
+			field:   "visibility_level",
+			pattern: "20",
+			err:     false,
+		},
+		{
+			input:   "meta.needle:ha.*stack",
+			field:   "needle",
+			pattern: "ha.*stack",
+			err:     false,
+		},
+		{
+			input:   "meta.public:true",
+			field:   "public",
+			pattern: "true",
+			err:     false,
+		},
+		{
+			input:   "meta.language:go",
+			field:   "language",
+			pattern: "go",
+			err:     false,
+		},
+		{
+			input:   "meta.invalid_field:(",
+			field:   "invalid_field",
+			pattern: "(",
+			err:     true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.input, func(t *testing.T) {
+			q, err := Parse(c.input)
+			if c.err {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+
+			meta, ok := q.(*Meta)
+			if !ok || meta == nil {
+				t.Errorf("expected *Meta, got %T", q)
+				return
+			}
+
+			if meta.Field != c.field {
+				t.Errorf("expected field %q, got %q", c.field, meta.Field)
+			}
+			if meta.Value == nil || meta.Value.String() != c.pattern {
+				t.Errorf("expected pattern %q, got %v", c.pattern, meta.Value)
+			}
+		})
 	}
 }

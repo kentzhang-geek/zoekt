@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
-	"golang.org/x/sys/unix"
 )
 
 // mergeMeta updates the .meta files for the shards on disk for o.
@@ -45,7 +46,7 @@ func mergeMeta(o *index.Options) error {
 			continue
 		}
 
-		var merged interface{}
+		var merged any
 		if md.IndexFormatVersion >= 17 {
 			merged = repos
 		} else {
@@ -82,7 +83,7 @@ func mergeMeta(o *index.Options) error {
 //
 // Note: .tmp is the same suffix used by Builder. indexserver knows to clean
 // them up.
-func jsonMarshalTmpFile(v interface{}, p string) (_ string, err error) {
+func jsonMarshalTmpFile(v any, p string) (_ string, err error) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return "", err

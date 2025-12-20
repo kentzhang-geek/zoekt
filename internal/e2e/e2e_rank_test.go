@@ -15,11 +15,12 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
 	"github.com/sourcegraph/zoekt/internal/archive"
-	"github.com/sourcegraph/zoekt/internal/shards"
 	"github.com/sourcegraph/zoekt/query"
+	"github.com/sourcegraph/zoekt/search"
 )
 
 var update = flag.Bool("update", false, "update golden file")
@@ -41,7 +42,7 @@ func TestRanking(t *testing.T) {
 	archiveURLs := []string{
 		"https://github.com/sourcegraph/sourcegraph-public-snapshot/tree/v5.2.2", // Nov 1 2023
 		"https://github.com/golang/go/tree/go1.21.4",                             // Nov 7 2023
-		"https://github.com/sourcegraph/cody/tree/vscode-v0.14.5",                // Nov 8 2023
+		"https://github.com/sourcegraph/cody-public-snapshot/tree/vscode-v0.14.5", // Nov 8 2023
 		// The commit before ranking e2e tests were added to avoid matching
 		// content inside our golden files.
 		"https://github.com/sourcegraph/zoekt/commit/ef907c2371176aa3f97713d5bf182983ef090c6a", // Nov 17 2023
@@ -64,8 +65,8 @@ func TestRanking(t *testing.T) {
 		q("Repository metadata Write rbac", "github.com/sourcegraph/sourcegraph-public-snapshot/internal/rbac/constants.go"), // unsure if this is the best doc?
 
 		// cody
-		q("generate unit test", "github.com/sourcegraph/cody/lib/shared/src/chat/recipes/generate-test.ts"),
-		q("r:cody sourcegraph url", "github.com/sourcegraph/cody/lib/shared/src/sourcegraph-api/graphql/client.ts"),
+		q("generate unit test", "github.com/sourcegraph/cody-public-snapshot/lib/shared/src/chat/recipes/generate-test.ts"),
+		q("r:cody sourcegraph url", "github.com/sourcegraph/cody-public-snapshot/lib/shared/src/sourcegraph-api/graphql/client.ts"),
 
 		// zoekt
 		q("zoekt searcher", "github.com/sourcegraph/zoekt/api.go"),
@@ -96,7 +97,7 @@ func TestRanking(t *testing.T) {
 		}
 	}
 
-	ss, err := shards.NewDirectorySearcher(indexDir)
+	ss, err := search.NewDirectorySearcher(indexDir)
 	if err != nil {
 		t.Fatalf("NewDirectorySearcher(%s): %v", indexDir, err)
 	}

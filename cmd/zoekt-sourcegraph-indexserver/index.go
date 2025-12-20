@@ -17,10 +17,11 @@ import (
 	"time"
 
 	sglog "github.com/sourcegraph/log"
+
 	"github.com/sourcegraph/zoekt"
+	configv1 "github.com/sourcegraph/zoekt/cmd/zoekt-sourcegraph-indexserver/grpc/protos/sourcegraph/zoekt/configuration/v1"
 	"github.com/sourcegraph/zoekt/index"
 	"github.com/sourcegraph/zoekt/internal/ctags"
-	"github.com/sourcegraph/zoekt/internal/tenant"
 )
 
 const defaultIndexingTimeout = 1*time.Hour + 30*time.Minute
@@ -102,11 +103,6 @@ type indexArgs struct {
 // BuildOptions returns a index.Options represented by indexArgs. Note: it
 // doesn't set fields like repository/branch.
 func (o *indexArgs) BuildOptions() *index.Options {
-	shardPrefix := ""
-	if tenant.EnforceTenant() {
-		shardPrefix = tenant.SrcPrefix(o.TenantID, o.RepoID)
-	}
-
 	return &index.Options{
 		// It is important that this RepositoryDescription exactly matches what
 		// the indexer we call will produce. This is to ensure that
@@ -114,11 +110,11 @@ func (o *indexArgs) BuildOptions() *index.Options {
 		// nothing needs to be done.
 		RepositoryDescription: zoekt.Repository{
 			TenantID: o.TenantID,
-			ID:       uint32(o.IndexOptions.RepoID),
+			ID:       o.RepoID,
 			Name:     o.Name,
 			Branches: o.Branches,
 			RawConfig: map[string]string{
-				"repoid":   strconv.Itoa(int(o.IndexOptions.RepoID)),
+				"repoid":   strconv.Itoa(int(o.RepoID)),
 				"priority": strconv.FormatFloat(o.Priority, 'g', -1, 64),
 				"public":   marshalBool(o.Public),
 				"fork":     marshalBool(o.Fork),
@@ -139,8 +135,6 @@ func (o *indexArgs) BuildOptions() *index.Options {
 		LanguageMap: o.LanguageMap,
 
 		ShardMerging: o.ShardMerging,
-
-		ShardPrefix: shardPrefix,
 	}
 }
 
@@ -180,7 +174,7 @@ type gitIndexConfig struct {
 	timeout time.Duration
 }
 
-func gitIndex(c gitIndexConfig, o *indexArgs, sourcegraph Sourcegraph, l sglog.Logger) error {
+func gitIndex(ctx context.Context, c gitIndexConfig, o *indexArgs, sourcegraph Sourcegraph, l sglog.Logger) error {
 	logger := l.Scoped("gitIndex")
 
 	if len(o.Branches) == 0 {
@@ -195,7 +189,7 @@ func gitIndex(c gitIndexConfig, o *indexArgs, sourcegraph Sourcegraph, l sglog.L
 		return errors.New("findRepositoryMetadata in provided configuration was nil - a function must be provided")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	gitDir, err := tmpGitDir(o.Name)
@@ -449,4 +443,39 @@ func tmpGitDir(name string) (string, error) {
 		}
 	}
 	return dir, nil
+}
+
+// FromProto converts a ZoektIndexOptions proto message into an IndexOptions struct.
+func (o *IndexOptions) FromProto(x *configv1.ZoektIndexOptions) {
+	branches := make([]zoekt.RepositoryBranch, 0, len(x.Branches))
+	for _, b := range x.GetBranches() {
+		branches = append(branches, zoekt.RepositoryBranch{
+			Name:    b.GetName(),
+			Version: b.GetVersion(),
+		})
+	}
+
+	languageMap := make(map[string]ctags.CTagsParserType)
+	for _, lang := range x.GetLanguageMap() {
+		languageMap[lang.GetLanguage()] = ctags.CTagsParserType(lang.GetCtags().Number())
+	}
+
+	*o = IndexOptions{
+		RepoID:     uint32(x.GetRepoId()),
+		LargeFiles: x.GetLargeFiles(),
+		Symbols:    x.GetSymbols(),
+		Branches:   branches,
+		Name:       x.GetName(),
+
+		Priority: x.GetPriority(),
+
+		Public:   x.GetPublic(),
+		Fork:     x.GetFork(),
+		Archived: x.GetArchived(),
+
+		LanguageMap:      languageMap,
+		ShardConcurrency: x.GetShardConcurrency(),
+
+		TenantID: int(x.TenantId),
+	}
 }

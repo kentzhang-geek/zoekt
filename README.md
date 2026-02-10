@@ -46,7 +46,44 @@ for simple local usage, or for testing and development.
 #### Indexing a local directory (not git-specific)
 
     go install github.com/sourcegraph/zoekt/cmd/zoekt-index
-    $GOPATH/bin/zoekt-index -index ~/.zoekt /path/to/repo
+    $GOPATH/bin/zoekt-index /path/to/repo
+
+By default, `zoekt-index` now writes index files to `~/.zoekt/indexdb`.
+You can override this with `-index_dir`.
+
+#### Re-using indexing configs with `zoekt-index` subcommands
+
+`zoekt-index` supports simple config-driven workflows via subcommands similar to `qgrep`:
+
+    $GOPATH/bin/zoekt-index list
+    $GOPATH/bin/zoekt-index update XXX
+
+- `list` prints available indexing configurations.
+- `update <config-name>` loads that config and re-indexes the configured repository (or repositories).
+
+Configuration files are JSON files stored in `~/.zoekt` and named `<config-name>.json`.
+For example, if you run `zoekt-index update unreal-engine`, create this file at `~/.zoekt/unreal-engine.json`:
+
+```json
+{
+  "paths": ["C:\\src\\UnrealEngine"],
+  "ignore_dirs": ".git,.hg,.svn,Intermediate,Binaries,Saved",
+  "repo_name": "UnrealEngine",
+  "file_extensions": "h|hh|hpp|hxx|inl|cpp|cc|cxx|usf|ush|cs|uproject|uplugin",
+  "parallelism": 64,
+  "index_dir": "C:\\Users\\you\\.zoekt\\indexdb"
+}
+```
+
+Field notes:
+- `paths`: One or more repository/source paths to index.
+- `ignore_dirs`: Comma-separated directory names to skip while walking files.
+- `repo_name`: The repository name shown in search results.
+- `file_extensions`: Pipe-separated extension allowlist (without dots). The example includes Unreal C/C++ headers/sources plus shader files (`usf`, `ush`).
+- `parallelism`: Number of indexing workers (set to `64` in this example).
+- `index_dir`: Output directory for generated Zoekt shard/index files.
+
+This is useful when you keep repeatable indexing definitions and want to trigger refreshes by name.
 
 #### Searching an index
 
@@ -76,7 +113,10 @@ for more details on this configuration.
 #### Starting the web server
 
     go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver
-    $GOPATH/bin/zoekt-webserver -index ~/.zoekt/
+    $GOPATH/bin/zoekt-webserver
+
+By default, `zoekt-webserver` reads indexes from `~/.zoekt/indexdb`.
+You can override this with `-index`.
 
 This will start a web server with a simple search UI at http://localhost:6070.
 See the [query syntax docs](doc/query_syntax.md) for more details on the query

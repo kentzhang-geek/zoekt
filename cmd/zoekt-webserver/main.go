@@ -153,6 +153,9 @@ func main() {
 	templateDir := flag.String("template_dir", "", "set directory from which to load custom .html.tpl template files")
 	dumpTemplates := flag.Bool("dump_templates", false, "dump templates into --template_dir and exit.")
 	corsOrigin := flag.String("cors_origin", "", "allow requests from this origin. If empty, no CORS headers are set.")
+	enableMCP := flag.Bool("mcp", false, "enable MCP over HTTP on the same listener")
+	mcpPath := flag.String("mcp_path", "/mcp", "HTTP path for the embedded MCP server")
+	mcpAllowedOrigins := flag.String("mcp_allowed_origins", "", "comma-separated allowlist of Origin values for the embedded MCP server. Empty accepts localhost origins and requests without Origin.")
 	version := flag.Bool("version", false, "Print version number")
 
 	flag.Parse()
@@ -263,6 +266,23 @@ func main() {
 		socket := filepath.Join(*indexDir, "indexserver.sock")
 		sglog.Scoped("server").Info("adding reverse proxy", sglog.String("socket", socket))
 		addProxyHandler(serveMux, socket)
+	}
+
+	if *enableMCP {
+		path := strings.TrimSpace(*mcpPath)
+		if path == "" {
+			log.Fatal("mcp_path must not be empty when -mcp is enabled")
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+
+		var allowedOrigins []string
+		if *mcpAllowedOrigins != "" {
+			allowedOrigins = strings.Split(*mcpAllowedOrigins, ",")
+		}
+
+		serveMux.Handle(path, newMCPHandler(s.Searcher, "zoekt-webserver", index.Version, allowedOrigins))
 	}
 
 	handler := trace.Middleware(serveMux)

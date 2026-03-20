@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
+	"slices"
 	"strings"
 	"time"
 
@@ -129,6 +130,11 @@ func loadIndexConfig(name string) (*IndexConfig, error) {
 		return nil, err
 	}
 
+	return loadIndexConfigFromDir(configDir, name)
+}
+
+func loadIndexConfigFromDir(configDir, name string) (*IndexConfig, error) {
+
 	configPath := filepath.Join(configDir, name+".json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("configuration file not found: %s", configPath)
@@ -152,6 +158,34 @@ func loadIndexConfig(name string) (*IndexConfig, error) {
 	return &config, nil
 }
 
+func listConfigNames() ([]string, error) {
+	configDir, err := getZoektConfigDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return listConfigNamesFromDir(configDir)
+}
+
+func listConfigNamesFromDir(configDir string) ([]string, error) {
+	files, err := os.ReadDir(configDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config directory: %v", err)
+	}
+
+	var names []string
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+
+		names = append(names, strings.TrimSuffix(file.Name(), ".json"))
+	}
+
+	slices.Sort(names)
+	return names, nil
+}
+
 // listConfigs lists all available configuration files in the .zoekt directory
 func listConfigs() error {
 	configDir, err := getZoektConfigDir()
@@ -159,21 +193,16 @@ func listConfigs() error {
 		return err
 	}
 
-	files, err := os.ReadDir(configDir)
+	names, err := listConfigNamesFromDir(configDir)
 	if err != nil {
-		return fmt.Errorf("failed to read config directory: %v", err)
+		return err
 	}
 
 	fmt.Println("Available configurations:")
 	fmt.Println("------------------------")
 
 	found := false
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-
-		configName := strings.TrimSuffix(file.Name(), ".json")
+	for _, configName := range names {
 		config, err := loadIndexConfig(configName)
 		if err != nil {
 			fmt.Printf("- %s (Error: %v)\n", configName, err)
@@ -228,6 +257,7 @@ func printUsage() {
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s [options] PATHS...\n", filepath.Base(os.Args[0]))
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s update <config-name>\n", filepath.Base(os.Args[0]))
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s watch <config-name>\n", filepath.Base(os.Args[0]))
+	fmt.Fprintf(flag.CommandLine.Output(), "  %s nuke\n", filepath.Base(os.Args[0]))
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s list\n\n", filepath.Base(os.Args[0]))
 	fmt.Fprintln(flag.CommandLine.Output(), "Options:")
 	flag.PrintDefaults()
@@ -264,38 +294,40 @@ func main() {
 	}
 
 	// Check for the "update" subcommand
-	if flag.NArg() >= 2 && flag.Arg(0) == "update" {
-		configName := flag.Arg(1)
-		config, err := loadIndexConfig(configName)
+	if flag.NArg() >= 1 && flag.Arg(0) == "update" {
+		configName := ""
+		if flag.NArg() >= 2 {
+			configName = flag.Arg(1)
+		}
+
+		configs, err := loadNamedConfigs(configName)
 		if err != nil {
 			log.Fatalf("Failed to load configuration: %v", err)
 		}
 
-		// Set up CPU profiling if requested in config
-		if config.CPUProfile != "" {
-			f, err := os.Create(config.CPUProfile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if err := pprof.StartCPUProfile(f); err != nil {
-				log.Fatal(err)
-			}
-			defer pprof.StopCPUProfile()
-		}
-
-		if err := runIndexConfig(config, outputIndexDir); err != nil {
+		if err := runNamedConfigs(configs, outputIndexDir, true); err != nil {
 			log.Fatalf("Failed to update configuration: %v", err)
 		}
 
 		return
 	}
 
-	if flag.NArg() >= 2 && flag.Arg(0) == "watch" {
-		configName := flag.Arg(1)
-		if err := watchIndexConfig(configName, outputIndexDir, *watchDebounce); err != nil {
+	if flag.NArg() >= 1 && flag.Arg(0) == "watch" {
+		configName := ""
+		if flag.NArg() >= 2 {
+			configName = flag.Arg(1)
+		}
+		if err := watchConfigs(configName, outputIndexDir, *watchDebounce); err != nil {
 			log.Fatalf("watch failed: %v", err)
 		}
 
+		return
+	}
+
+	if flag.NArg() >= 1 && flag.Arg(0) == "nuke" {
+		if err := nukeIndexDir(outputIndexDir); err != nil {
+			log.Fatalf("nuke failed: %v", err)
+		}
 		return
 	}
 

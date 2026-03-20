@@ -24,11 +24,11 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
+	"time"
 
 	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/sourcegraph/zoekt/cmd"
-	"github.com/sourcegraph/zoekt/index"
 )
 
 type fileInfo struct {
@@ -227,6 +227,7 @@ func printUsage() {
 	fmt.Fprintf(flag.CommandLine.Output(), "USAGE:\n")
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s [options] PATHS...\n", filepath.Base(os.Args[0]))
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s update <config-name>\n", filepath.Base(os.Args[0]))
+	fmt.Fprintf(flag.CommandLine.Output(), "  %s watch <config-name>\n", filepath.Base(os.Args[0]))
 	fmt.Fprintf(flag.CommandLine.Output(), "  %s list\n\n", filepath.Base(os.Args[0]))
 	fmt.Fprintln(flag.CommandLine.Output(), "Options:")
 	flag.PrintDefaults()
@@ -239,6 +240,7 @@ func main() {
 	metaFile := flag.String("meta", "", "path to .meta JSON file with repository description")
 	// Add output index directory flag with default to our custom location
 	indexDir := flag.String("index_dir", "", "directory to write index files (defaults to ~/.zoekt/indexdb)")
+	watchDebounce := flag.Duration("watch_debounce", 3*time.Second, "delay before reindexing after filesystem changes in watch mode")
 	flag.Parse()
 
 	// Create and ensure index directory exists
@@ -281,73 +283,17 @@ func main() {
 			defer pprof.StopCPUProfile()
 		}
 
-		// Setup ignore dirs from config
-		ignoreDirMap := map[string]struct{}{}
-		if config.IgnoreDirs != "" {
-			dirs := strings.Split(config.IgnoreDirs, ",")
-			for _, d := range dirs {
-				d = strings.TrimSpace(d)
-				if d != "" {
-					ignoreDirMap[d] = struct{}{}
-				}
-			}
+		if err := runIndexConfig(config, outputIndexDir); err != nil {
+			log.Fatalf("Failed to update configuration: %v", err)
 		}
 
-		// Setup file extension filters
-		fileExts := map[string]struct{}{}
-		if config.FileExtensions != "" {
-			exts := strings.Split(config.FileExtensions, "|")
-			for _, ext := range exts {
-				ext = strings.TrimSpace(ext)
-				if ext != "" {
-					// Auto-add the dot prefix for extension comparison
-					fileExts["."+strings.ToLower(ext)] = struct{}{}
-				}
-			}
-		}
+		return
+	}
 
-		// Set index directory from config if specified
-		indexOutputDir := outputIndexDir
-		if config.IndexDir != "" {
-			indexOutputDir = config.IndexDir
-			// Ensure the directory exists
-			if err := os.MkdirAll(indexOutputDir, 0755); err != nil {
-				log.Fatalf("Failed to create custom index directory: %v", err)
-			}
-		}
-		config.IndexDir = indexOutputDir
-
-		// Process all paths from config
-		for _, path := range config.Paths {
-			// Create a new options instance for each path
-			opts := cmd.OptionsFromFlags()
-
-			// Set the index output directory
-			opts.IndexDir = indexOutputDir
-
-			// Set parallelism from config
-			if config.Parallelism > 0 {
-				opts.Parallelism = config.Parallelism
-			}
-
-			// Set repository name if provided in config, otherwise use directory name
-			if config.RepoName != "" {
-				// For multiple paths, append the base directory name to make them unique
-				if len(config.Paths) > 1 {
-					baseDir := filepath.Base(path)
-					opts.RepositoryDescription.Name = fmt.Sprintf("%s/%s", config.RepoName, baseDir)
-				} else {
-					opts.RepositoryDescription.Name = config.RepoName
-				}
-			}
-
-			// Set the source path
-			opts.RepositoryDescription.Source = path
-
-			log.Printf("Indexing path: %s as repository: %s", path, opts.RepositoryDescription.Name)
-			if err := indexArgWithFilters(path, *opts, ignoreDirMap, fileExts); err != nil {
-				log.Fatalf("Error indexing %s: %v", path, err)
-			}
+	if flag.NArg() >= 2 && flag.Arg(0) == "watch" {
+		configName := flag.Arg(1)
+		if err := watchIndexConfig(configName, outputIndexDir, *watchDebounce); err != nil {
+			log.Fatalf("watch failed: %v", err)
 		}
 
 		return
@@ -377,16 +323,7 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	ignoreDirMap := map[string]struct{}{}
-	if *ignoreDirs != "" {
-		dirs := strings.Split(*ignoreDirs, ",")
-		for _, d := range dirs {
-			d = strings.TrimSpace(d)
-			if d != "" {
-				ignoreDirMap[d] = struct{}{}
-			}
-		}
-	}
+	ignoreDirMap := buildIgnoreDirMap(*ignoreDirs)
 
 	if *metaFile != "" {
 		// Read and parse the .meta JSON file into opts.RepositoryDescription
@@ -405,115 +342,4 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-}
-
-func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
-	dir, err := filepath.Abs(filepath.Clean(arg))
-	if err != nil {
-		return err
-	}
-
-	opts.RepositoryDescription.Name = filepath.Base(dir)
-	builder, err := index.NewBuilder(opts)
-	if err != nil {
-		return err
-	}
-	// we don't need to check error, since we either already have an error, or
-	// we returning the first call to builder.Finish.
-	defer builder.Finish() // nolint:errcheck
-
-	comm := make(chan fileInfo, 100)
-	agg := fileAggregator{
-		ignoreDirs: ignore,
-		sink:       comm,
-		sizeMax:    int64(opts.SizeMax),
-		fileExts:   fileExts,
-	}
-
-	go func() {
-		if err := filepath.Walk(dir, agg.add); err != nil {
-			log.Fatal(err)
-		}
-		close(comm)
-	}()
-
-	for f := range comm {
-		displayName := strings.TrimPrefix(f.name, dir+"/")
-		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
-			if err := builder.Add(index.Document{
-				Name:       displayName,
-				SkipReason: index.SkipReasonTooLarge,
-			}); err != nil {
-				return err
-			}
-			continue
-		}
-		content, err := os.ReadFile(f.name)
-		if err != nil {
-			return err
-		}
-
-		if err := builder.AddFile(displayName, content); err != nil {
-			return err
-		}
-	}
-
-	return builder.Finish()
-}
-
-func indexArgWithFilters(arg string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
-	dir, err := filepath.Abs(filepath.Clean(arg))
-	if err != nil {
-		return err
-	}
-
-	if opts.RepositoryDescription.Name == "" {
-		opts.RepositoryDescription.Name = filepath.Base(dir)
-	}
-
-	builder, err := index.NewBuilder(opts)
-	if err != nil {
-		return err
-	}
-	// we don't need to check error, since we either already have an error, or
-	// we returning the first call to builder.Finish.
-	defer builder.Finish() // nolint:errcheck
-
-	comm := make(chan fileInfo, 100)
-	agg := fileAggregator{
-		ignoreDirs: ignore,
-		sink:       comm,
-		sizeMax:    int64(opts.SizeMax),
-		fileExts:   fileExts, // Pass the file extension filter
-	}
-
-	go func() {
-		if err := filepath.Walk(dir, agg.add); err != nil {
-			log.Fatal(err)
-		}
-		close(comm)
-	}()
-
-	for f := range comm {
-		displayName := strings.TrimPrefix(f.name, dir+"/")
-		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
-			if err := builder.Add(index.Document{
-				Name:       displayName,
-				SkipReason: index.SkipReasonTooLarge,
-			}); err != nil {
-				return err
-			}
-			continue
-		}
-		content, err := os.ReadFile(f.name)
-		if err != nil {
-			return err
-		}
-
-		if err := builder.AddFile(displayName, content); err != nil {
-			return err
-		}
-	}
-
-	return builder.Finish()
 }

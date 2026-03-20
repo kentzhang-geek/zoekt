@@ -295,12 +295,9 @@ func main() {
 
 	// Check for the "update" subcommand
 	if flag.NArg() >= 1 && flag.Arg(0) == "update" {
-		configName := ""
-		if flag.NArg() >= 2 {
-			configName = flag.Arg(1)
-		}
+		configNames := flag.Args()[1:]
 
-		configs, err := loadNamedConfigs(configName)
+		configs, err := loadNamedConfigs(configNames)
 		if err != nil {
 			log.Fatalf("Failed to load configuration: %v", err)
 		}
@@ -313,11 +310,8 @@ func main() {
 	}
 
 	if flag.NArg() >= 1 && flag.Arg(0) == "watch" {
-		configName := ""
-		if flag.NArg() >= 2 {
-			configName = flag.Arg(1)
-		}
-		if err := watchConfigs(configName, outputIndexDir, *watchDebounce); err != nil {
+		configNames := flag.Args()[1:]
+		if err := watchConfigs(configNames, outputIndexDir, *watchDebounce); err != nil {
 			log.Fatalf("watch failed: %v", err)
 		}
 

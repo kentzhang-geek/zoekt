@@ -66,16 +66,48 @@ func displayNameForIndexedPath(root, path string) string {
 	return filepath.ToSlash(rel)
 }
 
-func loadNamedConfigs(configName string) ([]namedConfig, error) {
-	if configName != "" {
-		config, err := loadIndexConfig(configName)
+func loadNamedConfigs(configNames []string) ([]namedConfig, error) {
+	configDir, err := getZoektConfigDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return loadNamedConfigsFromDir(configDir, configNames)
+}
+
+func loadNamedConfigsFromDir(configDir string, configNames []string) ([]namedConfig, error) {
+	if len(configNames) == 0 {
+		return loadAllNamedConfigsFromDir(configDir)
+	}
+
+	seen := map[string]struct{}{}
+	configs := make([]namedConfig, 0, len(configNames))
+	for _, name := range configNames {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		config, err := loadIndexConfigFromDir(configDir, name)
 		if err != nil {
 			return nil, err
 		}
-		return []namedConfig{{name: configName, config: config}}, nil
+		configs = append(configs, namedConfig{name: name, config: config})
 	}
 
-	names, err := listConfigNames()
+	return configs, nil
+}
+
+func loadAllNamedConfigs() ([]namedConfig, error) {
+	configDir, err := getZoektConfigDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return loadAllNamedConfigsFromDir(configDir)
+}
+
+func loadAllNamedConfigsFromDir(configDir string) ([]namedConfig, error) {
+	names, err := listConfigNamesFromDir(configDir)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +117,7 @@ func loadNamedConfigs(configName string) ([]namedConfig, error) {
 
 	configs := make([]namedConfig, 0, len(names))
 	for _, name := range names {
-		config, err := loadIndexConfig(name)
+		config, err := loadIndexConfigFromDir(configDir, name)
 		if err != nil {
 			return nil, err
 		}
@@ -156,12 +188,12 @@ func runIndexConfig(configName string, config *IndexConfig, defaultIndexDir stri
 	return nil
 }
 
-func watchConfigs(configName, defaultIndexDir string, debounce time.Duration) error {
+func watchConfigs(configNames []string, defaultIndexDir string, debounce time.Duration) error {
 	if debounce <= 0 {
 		return fmt.Errorf("watch_debounce must be greater than zero")
 	}
 
-	configs, err := loadNamedConfigs(configName)
+	configs, err := loadNamedConfigs(configNames)
 	if err != nil {
 		return err
 	}
@@ -185,10 +217,10 @@ func watchConfigs(configName, defaultIndexDir string, debounce time.Duration) er
 		return err
 	}
 
-	if configName == "" {
+	if len(configNames) == 0 {
 		log.Printf("watching %d config(s)", len(configs))
 	} else {
-		log.Printf("watching config %q", configName)
+		log.Printf("watching %d named config(s): %s", len(configs), strings.Join(configNames, ", "))
 	}
 
 	if err := runNamedConfigs(configs, defaultIndexDir, false); err != nil {

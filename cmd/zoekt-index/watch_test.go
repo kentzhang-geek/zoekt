@@ -212,3 +212,51 @@ func TestNukeIndexDir(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadNamedConfigsFromDir(t *testing.T) {
+	tempDir := t.TempDir()
+	files := map[string]string{
+		"ue.json":     `{"repo_name":"UE","paths":["one"]}`,
+		"pbrtv3.json": `{"repo_name":"PBRTv3","paths":["two"]}`,
+		"pbrtv4.json": `{"repo_name":"PBRTv4","paths":["three"]}`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(tempDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("all configs when empty", func(t *testing.T) {
+		got, err := loadNamedConfigsFromDir(tempDir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var names []string
+		for _, cfg := range got {
+			names = append(names, cfg.name)
+		}
+
+		want := []string{"pbrtv3", "pbrtv4", "ue"}
+		if !slices.Equal(names, want) {
+			t.Fatalf("loadNamedConfigsFromDir(nil) names = %#v, want %#v", names, want)
+		}
+	})
+
+	t.Run("selected configs preserve input order and dedupe", func(t *testing.T) {
+		got, err := loadNamedConfigsFromDir(tempDir, []string{"ue", "pbrtv4", "ue"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var names []string
+		for _, cfg := range got {
+			names = append(names, cfg.name)
+		}
+
+		want := []string{"ue", "pbrtv4"}
+		if !slices.Equal(names, want) {
+			t.Fatalf("loadNamedConfigsFromDir(selected) names = %#v, want %#v", names, want)
+		}
+	})
+}

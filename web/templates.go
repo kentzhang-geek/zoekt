@@ -125,7 +125,7 @@ var TemplateText = map[string]string{
   .favorite-list li {
      width: 100%;
   }
-  .favorite-list li a {
+  .favorite-list > li:not(.favorite-entry) > a {
      text-overflow: ellipsis;
      overflow-x: auto;
      max-width: 100%;
@@ -139,6 +139,31 @@ var TemplateText = map[string]string{
   }
   .favorite-item:hover {
      background-color: #f5f5f5;
+  }
+  .favorite-entry {
+     display: flex;
+     align-items: center;
+     padding: 0;
+  }
+  .favorite-link {
+     flex: 1 1 auto;
+     min-width: 0;
+     overflow: hidden;
+     text-overflow: ellipsis;
+     white-space: nowrap;
+     padding: 3px 12px 3px 20px;
+  }
+  .favorite-remove {
+     flex: 0 0 auto;
+     display: block;
+     padding: 3px 20px 3px 8px;
+     line-height: 1.42857143;
+     text-decoration: none;
+  }
+  .favorite-remove:hover,
+  .favorite-remove:focus {
+     color: #c9302c;
+     text-decoration: none;
   }
   .favorite-btn {
      color: #ffc107;
@@ -343,16 +368,16 @@ var TemplateText = map[string]string{
         } else {
           favorites.forEach(query => {
             const item = document.createElement('li');
-            item.className = 'favorite-item';
+            item.className = 'favorite-item favorite-entry';
             
             const link = document.createElement('a');
+            link.className = 'favorite-link';
             link.href = 'search?q=' + encodeURIComponent(query);
             link.textContent = query;
             link.title = query;
             
             const removeBtn = document.createElement('a');
-            removeBtn.className = 'pull-right text-danger';
-            removeBtn.style.marginLeft = '10px';
+            removeBtn.className = 'favorite-remove text-danger';
             removeBtn.innerHTML = '&times;';
             removeBtn.href = '#';
             removeBtn.title = 'Remove from favorites';

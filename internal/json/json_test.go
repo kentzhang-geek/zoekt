@@ -7,8 +7,11 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/grafana/regexp"
 
 	"github.com/sourcegraph/zoekt"
 	zjson "github.com/sourcegraph/zoekt/internal/json"
@@ -161,6 +164,60 @@ func TestClientServerWithEmptyRepoIDsProvided(t *testing.T) {
 	}
 }
 
+func TestClientServerResolvesLocalFilePaths(t *testing.T) {
+	searchQuery := "hello"
+	repoRe := mustCompile("^local-repo$")
+
+	repo := zoekt.Repository{Name: "local-repo"}
+	root := filepath.Join(t.TempDir(), "Engine")
+	if err := zoekt.SetFileSystemRoots(&repo, map[string]string{"Engine": root}); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &mockSearcher.MockSearcher{
+		WantSearch: mustParse(searchQuery),
+		SearchResult: &zoekt.SearchResult{
+			Files: []zoekt.FileMatch{{
+				FileName:   "Engine/src/main.go",
+				Repository: "local-repo",
+			}},
+		},
+		WantList: query.NewOr(&query.Repo{Regexp: repoRe}),
+		RepoList: &zoekt.RepoList{
+			Repos: []*zoekt.RepoListEntry{{
+				Repository: repo,
+			}},
+		},
+	}
+
+	ts := httptest.NewServer(zjson.JSONServer(mock))
+	defer ts.Close()
+
+	searchBody, err := json.Marshal(struct{ Q string }{Q: searchQuery})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := http.Post(ts.URL+"/search", "application/json", bytes.NewBuffer(searchBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != 200 {
+		body, _ := io.ReadAll(r.Body)
+		t.Fatalf("Got status code %d, err %s", r.StatusCode, string(body))
+	}
+
+	var searchResult struct{ Result *zoekt.SearchResult }
+	if err := json.NewDecoder(r.Body).Decode(&searchResult); err != nil {
+		t.Fatal(err)
+	}
+
+	got := searchResult.Result.Files[0].FileName
+	want := filepath.Join(root, "src", "main.go")
+	if got != want {
+		t.Fatalf("search result file path = %q, want %q", got, want)
+	}
+}
+
 func TestProgressNotEncodedInSearch(t *testing.T) {
 	searchQuery := "hello"
 	mock := &mockSearcher.MockSearcher{
@@ -199,4 +256,12 @@ func mustParse(s string) query.Q {
 		panic(err)
 	}
 	return q
+}
+
+func mustCompile(s string) *regexp.Regexp {
+	re, err := regexp.Compile(s)
+	if err != nil {
+		panic(err)
+	}
+	return re
 }

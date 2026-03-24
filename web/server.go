@@ -37,6 +37,7 @@ import (
 	zjson "github.com/sourcegraph/zoekt/internal/json"
 
 	"github.com/sourcegraph/zoekt"
+	"github.com/sourcegraph/zoekt/internal/resultpath"
 	"github.com/sourcegraph/zoekt/internal/tenant/systemtenant"
 	"github.com/sourcegraph/zoekt/query"
 )
@@ -81,6 +82,12 @@ var Funcmap = template.FuncMap{
 	},
 	"TrimTrailingNewline": func(s string) string {
 		return strings.TrimSuffix(s, "\n")
+	},
+	"JSQuote": func(s string) template.JS {
+		return template.JS(strconv.Quote(s))
+	},
+	"CodeLink": func(fileName string, lineNum int) string {
+		return "codelink://" + fileName + ":" + strconv.Itoa(lineNum)
 	},
 }
 
@@ -361,7 +368,13 @@ func (s *Server) serveSearchErr(r *http.Request) (*ApiSearchResult, error) {
 		return nil, err
 	}
 
-	fileMatches, err := s.formatResults(result, queryStr, s.Print)
+	reposByName, err := resultpath.RepoMetadataByName(ctx, s.Searcher, result.Files)
+	if err != nil {
+		log.Printf("serveSearchErr: failed to resolve repo metadata for local file paths: %v", err)
+		reposByName = nil
+	}
+
+	fileMatches, err := s.formatResults(result, queryStr, s.Print, reposByName)
 	if err != nil {
 		return nil, err
 	}
@@ -677,6 +690,18 @@ func (s *Server) servePrintErr(w http.ResponseWriter, r *http.Request) error {
 			Num:       num,
 			AutoFocus: false,
 		},
+	}
+
+	if reposByName, err := resultpath.RepoMetadataByName(ctx, s.Searcher, result.Files); err != nil {
+		log.Printf("servePrintErr: failed to resolve repo metadata for local file paths: %v", err)
+		d.CodeLinkName = f.FileName
+	} else if repo := reposByName[f.Repository]; repo != nil {
+		d.CodeLinkName = zoekt.ResolveFileSystemPath(repo, f.FileName)
+	}
+	if d.CodeLinkName == "" {
+		d.CodeLinkName = f.FileName
+	} else {
+		d.Name = d.CodeLinkName
 	}
 
 	var buf bytes.Buffer

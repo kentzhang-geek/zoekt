@@ -3,10 +3,12 @@ package json
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/sourcegraph/zoekt"
+	"github.com/sourcegraph/zoekt/internal/resultpath"
 	"github.com/sourcegraph/zoekt/query"
 )
 
@@ -94,6 +96,18 @@ func (s *jsonSearcher) jsonSearch(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if repos, err := resultpath.RepoMetadataByName(ctx, s.Searcher, searchResult.Files); err != nil {
+		log.Printf("jsonSearch: failed to resolve repo metadata for local file paths: %v", err)
+	} else {
+		for i := range searchResult.Files {
+			if repo := repos[searchResult.Files[i].Repository]; repo != nil {
+				if abs := zoekt.ResolveFileSystemPath(repo, searchResult.Files[i].FileName); abs != "" {
+					searchResult.Files[i].FileName = abs
+				}
+			}
+		}
 	}
 
 	err = json.NewEncoder(w).Encode(jsonSearchReply{searchResult})

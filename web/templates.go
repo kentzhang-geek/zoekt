@@ -797,7 +797,7 @@ document.onkeydown=function(e){
               <span>
                 {{if $f.URL}}<a name="{{$f.ResultID}}" class="result"></a><a href="{{$f.URL}}" >{{else}}<a name="{{$f.ResultID}}">{{end}}
                 <small>
-                  <span style="font-weight: bold;">{{$f.Repo}}:{{$f.FileName}}</span> {{if $f.ScoreDebug}}<i>({{$f.ScoreDebug}})</i>{{end}}</a>:
+                  <span style="font-weight: bold;">{{$f.Repo}}:{{$f.DisplayName}}</span> {{if $f.ScoreDebug}}<i>({{$f.ScoreDebug}})</i>{{end}}</a>:
                   <span style="font-weight: normal">[ {{if $f.Branches}}{{range $f.Branches}}<span class="label label-default">{{.}}</span>,{{end}}{{end}} ]</span>
                   {{if $f.Language}}<button
                        title="restrict search to files written in {{$f.Language}}"
@@ -815,7 +815,7 @@ document.onkeydown=function(e){
         {{if gt .LineNum 0}}
         <tr style="border-top: 1px solid #e0e0e0;">
           <td colspan="2" style="background-color: rgba(238, 238, 255, 0.6); border-top: 1px solid #e0e0e0;">
-            <pre class="inline-pre" style="margin-bottom: 0;"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink('{{.FileName}}', {{.LineNum}}); return false;">📋</a>: </span>{{$beforeLines := AddLineNumbers .Before .LineNum true}}{{range $line := $beforeLines}}<span class="noselect"><u>{{$line.LineNum}}</u>:</span> {{$line.Content}}
+            <pre class="inline-pre" style="margin-bottom: 0;"><span class="noselect">{{if .URL}}<a href="{{.URL}}">{{end}}<u>{{.LineNum}}</u>{{if .URL}}</a>{{end}}<a href="#" class="copy-btn" title="Copy code link" onclick="copyCodeLink({{JSQuote .FileName}}, {{.LineNum}}); return false;">📋</a>: </span>{{$beforeLines := AddLineNumbers .Before .LineNum true}}{{range $line := $beforeLines}}<span class="noselect"><u>{{$line.LineNum}}</u>:</span> {{$line.Content}}
 {{end}}{{range .Fragments}}{{LimitPre 100 .Pre}}<b>{{.Match}}</b>{{LimitPost 100 (TrimTrailingNewline .Post)}}{{end}}{{$afterLines := AddLineNumbers .After .LineNum false}}{{range $line := $afterLines}}
 <span class="noselect"><u>{{$line.LineNum}}</u>:</span> {{$line.Content}}{{end}} {{if .ScoreDebug}}<i>({{.ScoreDebug}})</i>{{end}}</pre>
           </td>
@@ -946,9 +946,9 @@ document.onkeydown=function(e){
   <div class="container-fluid container-results" >
      <div><b>{{.Name}}</b></div>
      <div class="table table-hover table-condensed" style="overflow:auto; background: #eef;">
-{{ $fname := .Name }}
+{{ $fname := .CodeLinkName }}
        {{ range $index, $ln := .Lines }}
-	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#l{{Inc $index}}">{{Inc $index}}</a><a href="#" class="copy-btn" title="Copy code link" onclick="copyToClipboard('codelink://{{$fname}}:{{Inc $index}}'); return false;">📋</a>: </span>{{$ln}}</pre>       {{ end }}
+	 <pre id="l{{Inc $index}}" class="inline-pre"><span class="noselect"><a href="#l{{Inc $index}}">{{Inc $index}}</a><a href="#" class="copy-btn" title="Copy code link" onclick="copyToClipboard({{JSQuote (CodeLink $fname (Inc $index))}}); return false;">📋</a>: </span>{{$ln}}</pre>       {{ end }}
      </div>
   <nav class="navbar navbar-default navbar-bottom">
     <div class="container">

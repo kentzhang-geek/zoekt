@@ -175,7 +175,15 @@ func runIndexConfig(configName string, config *IndexConfig, defaultIndexDir stri
 		opts.Parallelism = config.Parallelism
 	}
 	opts.RepositoryDescription.Name = repoName
-	opts.RepositoryDescription.Source = "config:" + configName
+	if len(config.Paths) == 1 {
+		absPath, err := filepath.Abs(filepath.Clean(config.Paths[0]))
+		if err != nil {
+			return err
+		}
+		opts.RepositoryDescription.Source = absPath
+	} else {
+		opts.RepositoryDescription.Source = "config:" + configName
+	}
 
 	log.Printf("Indexing config %q as repository: %s", configName, repoName)
 	if err := indexConfigPaths(config, *opts, ignoreDirMap, fileExts); err != nil {
@@ -579,16 +587,20 @@ func cleanupLegacyConfigShards(config *IndexConfig, indexDir, currentRepoName st
 }
 
 func indexConfigPaths(config *IndexConfig, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
+	prefixes, err := configPathPrefixes(config.Paths)
+	if err != nil {
+		return err
+	}
+
+	if err := zoekt.SetFileSystemRoots(&opts.RepositoryDescription, configFileSystemRoots(config.Paths, prefixes)); err != nil {
+		return err
+	}
+
 	builder, err := index.NewBuilder(opts)
 	if err != nil {
 		return err
 	}
 	defer builder.Finish() // nolint:errcheck
-
-	prefixes, err := configPathPrefixes(config.Paths)
-	if err != nil {
-		return err
-	}
 
 	for i, path := range config.Paths {
 		log.Printf("adding path to repository %s: %s", opts.RepositoryDescription.Name, path)
@@ -663,6 +675,23 @@ func configPathPrefixes(paths []string) ([]string, error) {
 	}
 
 	return prefixes, nil
+}
+
+func configFileSystemRoots(paths, prefixes []string) map[string]string {
+	roots := make(map[string]string, len(paths))
+	for i, path := range paths {
+		abs, err := filepath.Abs(filepath.Clean(path))
+		if err != nil {
+			continue
+		}
+
+		prefix := ""
+		if i < len(prefixes) {
+			prefix = prefixes[i]
+		}
+		roots[prefix] = abs
+	}
+	return roots
 }
 
 func splitPathParts(path string) []string {

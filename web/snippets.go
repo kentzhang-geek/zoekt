@@ -25,7 +25,7 @@ import (
 	"github.com/sourcegraph/zoekt"
 )
 
-func (s *Server) formatResults(result *zoekt.SearchResult, query string, localPrint bool) ([]*FileMatch, error) {
+func (s *Server) formatResults(result *zoekt.SearchResult, query string, localPrint bool, reposByName map[string]*zoekt.Repository) ([]*FileMatch, error) {
 	var fmatches []*FileMatch
 
 	templateMap := map[string]*template.Template{}
@@ -91,14 +91,22 @@ func (s *Server) formatResults(result *zoekt.SearchResult, query string, localPr
 	// hash => result-id
 	seenFiles := map[string]string{}
 	for _, f := range result.Files {
+		resolvedPath := f.FileName
+		if repo := reposByName[f.Repository]; repo != nil {
+			if abs := zoekt.ResolveFileSystemPath(repo, f.FileName); abs != "" {
+				resolvedPath = abs
+			}
+		}
+
 		fMatch := FileMatch{
-			FileName:   f.FileName,
-			Repo:       f.Repository,
-			ResultID:   f.Repository + ":" + f.FileName,
-			Branches:   f.Branches,
-			Language:   f.Language,
-			Score:      f.Score,
-			ScoreDebug: f.Debug,
+			FileName:    f.FileName,
+			DisplayName: resolvedPath,
+			Repo:        f.Repository,
+			ResultID:    f.Repository + ":" + f.FileName,
+			Branches:    f.Branches,
+			Language:    f.Language,
+			Score:       f.Score,
+			ScoreDebug:  f.Debug,
 		}
 
 		if dup, ok := seenFiles[string(f.Checksum)]; ok {
@@ -121,7 +129,7 @@ func (s *Server) formatResults(result *zoekt.SearchResult, query string, localPr
 				fragment = "#" + fragment
 			}
 			md := Match{
-				FileName: f.FileName,
+				FileName: resolvedPath,
 				LineNum:  m.LineNumber,
 				URL:      fMatch.URL + fragment,
 

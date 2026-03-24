@@ -49,10 +49,11 @@ type ResultInput struct {
 
 // FileMatch holds the per file data provided to search results template
 type FileMatch struct {
-	FileName string
-	Repo     string
-	ResultID string
-	Language string
+	FileName    string
+	DisplayName string
+	Repo        string
+	ResultID    string
+	Language    string
 	// If this was a duplicate result, this will contain the file
 	// of the first index.
 	DuplicateID string
@@ -127,7 +128,8 @@ type Repository struct {
 
 // PrintInput is provided to the server.Print template.
 type PrintInput struct {
-	Repo, Name string
-	Lines      []string
-	Last       LastInput
+	Repo, Name   string
+	CodeLinkName string
+	Lines        []string
+	Last         LastInput
 }

@@ -29,6 +29,7 @@ import (
 
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/cmd"
 )
 
@@ -363,7 +364,14 @@ func main() {
 	}
 
 	for _, arg := range flag.Args() {
-		opts.RepositoryDescription.Source = arg
+		absArg, err := filepath.Abs(filepath.Clean(arg))
+		if err != nil {
+			log.Fatal(err)
+		}
+		opts.RepositoryDescription.Source = absArg
+		if err := zoekt.SetFileSystemRoot(&opts.RepositoryDescription, absArg); err != nil {
+			log.Fatal(err)
+		}
 		if err := indexArgWithFilters(arg, *opts, ignoreDirMap, nil); err != nil {
 			log.Fatal(err)
 		}

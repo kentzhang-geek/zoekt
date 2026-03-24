@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grafana/regexp"
+
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/query"
 )
@@ -347,11 +349,29 @@ func (h *mcpHandler) callSearch(ctx context.Context, queryText, prefix string) m
 		}
 	}
 
+	reposByName, err := repoMetadataByName(ctx, h.searcher, result.Files)
+	if err != nil {
+		return mcpToolResult{
+			Content: []mcpToolTextContent{{
+				Type: "text",
+				Text: fmt.Sprintf("Error resolving local file paths: %v", err),
+			}},
+			IsError: true,
+		}
+	}
+
 	var output strings.Builder
 	fmt.Fprintf(&output, "Found %d matches in %d files (Query: %s).\n\n", result.Stats.MatchCount, result.Stats.FileCount, fullQuery)
 
 	for _, file := range result.Files {
-		fmt.Fprintf(&output, "File: %s (Repo: %s)\n", file.FileName, file.Repository)
+		fileName := file.FileName
+		if repo := reposByName[file.Repository]; repo != nil {
+			if abs := zoekt.ResolveFileSystemPath(repo, file.FileName); abs != "" {
+				fileName = abs
+			}
+		}
+
+		fmt.Fprintf(&output, "File: %s (Repo: %s)\n", fileName, file.Repository)
 		for _, match := range file.LineMatches {
 			line := strings.TrimRight(string(match.Line), "\r\n")
 			fmt.Fprintf(&output, "%d: %s\n", match.LineNumber, line)
@@ -408,6 +428,42 @@ func (h *mcpHandler) tools(version string) []map[string]any {
 	}
 
 	return tools
+}
+
+func repoMetadataByName(ctx context.Context, searcher zoekt.Searcher, files []zoekt.FileMatch) (map[string]*zoekt.Repository, error) {
+	repoNames := map[string]struct{}{}
+	for _, file := range files {
+		if file.Repository == "" {
+			continue
+		}
+		repoNames[file.Repository] = struct{}{}
+	}
+
+	if len(repoNames) == 0 {
+		return nil, nil
+	}
+
+	qs := make([]query.Q, 0, len(repoNames))
+	for repoName := range repoNames {
+		repoRe, err := regexp.Compile("^" + regexp.QuoteMeta(repoName) + "$")
+		if err != nil {
+			return nil, err
+		}
+		qs = append(qs, &query.Repo{Regexp: repoRe})
+	}
+
+	repoList, err := searcher.List(ctx, query.NewOr(qs...), &zoekt.ListOptions{Field: zoekt.RepoListFieldRepos})
+	if err != nil || repoList == nil {
+		return nil, err
+	}
+
+	repos := make(map[string]*zoekt.Repository, len(repoList.Repos))
+	for _, entry := range repoList.Repos {
+		repo := entry.Repository
+		repos[repo.Name] = &repo
+	}
+
+	return repos, nil
 }
 
 func (h *mcpHandler) isOriginAllowed(origin string) bool {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -149,6 +150,61 @@ func TestMCPSearchToolCall(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("result missing %q in %q", want, text)
 		}
+	}
+}
+
+func TestMCPSearchToolCallResolvesLocalFilePath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Engine")
+	repo := zoekt.Repository{Name: "repo-a"}
+	if err := zoekt.SetFileSystemRoot(&repo, root); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newMCPHandler(fakeStreamer{
+		searchResult: &zoekt.SearchResult{
+			Stats: zoekt.Stats{
+				FileCount:  1,
+				MatchCount: 1,
+			},
+			Files: []zoekt.FileMatch{
+				{
+					FileName:   "src/main.go",
+					Repository: "repo-a",
+					LineMatches: []zoekt.LineMatch{
+						{LineNumber: 12, Line: []byte("func initContext() {}\n")},
+					},
+				},
+			},
+		},
+		listResult: &zoekt.RepoList{
+			Repos: []*zoekt.RepoListEntry{
+				{Repository: repo},
+			},
+		},
+	}, "zoekt-webserver", "dev", nil)
+
+	resp := postMCPWithVersion(t, handler, "2025-03-26", `{
+		"jsonrpc":"2.0",
+		"id":1,
+		"method":"tools/call",
+		"params":{"name":"search","arguments":{"query":"init","prefix":"r:repo-a"}}
+	}`)
+	if got := resp.Code; got != http.StatusOK {
+		t.Fatalf("tools/call status=%d want %d", got, http.StatusOK)
+	}
+
+	var body struct {
+		Result mcpToolResult `json:"result"`
+	}
+	decodeBody(t, resp, &body)
+
+	if body.Result.IsError {
+		t.Fatalf("expected non-error result")
+	}
+
+	want := filepath.Join(root, "src", "main.go")
+	if text := body.Result.Content[0].Text; !strings.Contains(text, "File: "+want+" (Repo: repo-a)") {
+		t.Fatalf("result missing absolute path %q in %q", want, text)
 	}
 }
 

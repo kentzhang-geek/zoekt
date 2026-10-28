@@ -1,6 +1,6 @@
 # 面向 Agent 的 Zoekt 搜索接口设计（简化修订版）
 
-状态：接口设计提案，尚未实现。当前运行的 MCP 为旧版本，只用于验证已有查询能力。已增加独立的只读性能脚本，并在已索引的 Unreal 上取得旧服务基线；没有重启服务或重建索引。测试方法、实测数据与后续验收见第 11 节。
+状态：接口设计提案，尚未实现。当前运行的 MCP 为旧版本，只用于验证已有查询能力。已增加独立的只读性能脚本，并在已索引的 Unreal 上取得旧 HTTP 服务基线；没有重启服务或重建索引。第 10 节补充新旧 MCP 及 HTTP 的正确性测试计划，第 11 节规定以真实 MCP 调用为主要 Unreal 性能验收，HTTP 单独回归。新增测试与脚本接口适配均留待后续实现。
 
 ## 1. 评审结论
 
@@ -300,19 +300,74 @@ Check completion/truncation flags before drawing absence conclusions.
 
 验证使用离线临时索引测试行为，并在同一语料上测量扫描、加载、聚合、编码及响应体积。默认值与高上限分开比较。接口实现与新 MCP 性能验收仍待完成，旧原生接口的自动化脚本和 Unreal 基线已完成。
 
+### 10.1 当前接口测试覆盖
+
+以下根据当前源码核对，不把“存在测试”表述为本轮已执行通过。
+
+| 接口 | 已有正确性测试 | 现有覆盖的不足 | 已有接口性能测试 |
+|---|---|---|---|
+| 旧 MCP `search(query, prefix)` | [mcp_test.go](../cmd/zoekt-webserver/mcp_test.go)：initialize、tools/list、仓库列表、搜索文本/行号、本地绝对路径、Origin 校验 | 搜索使用 fakeStreamer，忽略传入查询和选项；未覆盖真实索引上的 regex、过滤和搜索选项 | 未发现 MCP 接口 benchmark 或自动 Unreal 性能套件；此前工具调用只是语义抽查 |
+| 新 MCP `search(pattern, ...)` | 尚未实现，无对应自动测试 | 需要 files/snippets 的完整接口测试 | 尚无 |
+| MCP `search_raw(query, prefix)` | 尚未改名上线；可迁移旧 search 的测试 | 需要保留原生行为并补真实索引测试，不能只改测试中的工具名 | 尚无 |
+| `POST /api/search`，以及 `/api/list` | [internal/json/json_test.go](../internal/json/json_test.go)：HTTP JSON 往返、查询解析、RepoIDs/空数组、本地路径、Progress 不进入 JSON | 主要使用 mock 搜索器；未形成真实索引上的完整查询/选项/错误契约矩阵 | 已有本轮脚本的 `/api/search` Unreal 基线；未发现对应 Go 接口 benchmark |
+| `GET /search?format=json` | [web/e2e_test.go](../web/e2e_test.go)：真实小索引、JSON 片段、上下文、首尾行、无末尾换行、空白行、ctx 校验；另有路径/链接测试 | 已有覆盖较多，但未覆盖本次复杂 regex、跨接口一致性和插件使用方式的完整矩阵 | 当前脚本未覆盖，未发现该入口的接口 benchmark |
+
+这里的 HTTP 接口在项目中称为 [JSON HTTP API](json-api.md)，无需按是否严格符合 REST 风格区分测试责任。`POST /api/search` 的 JSON API 与 `GET /search?format=json` 的网页 JSON 输出是两个不同契约，MCP 也是独立契约，不能只测它们共用的搜索引擎。
+
+### 10.2 待实现的接口正确性测试
+
+保留已有测试并补充以下内容。真实匹配测试使用相同的临时索引 fixture，包含两个仓库、同名文件、相似目录、命中/不命中内容、首尾行、空文件、短文件、Unicode、CRLF 和无末尾换行。预期结果手工定义；不能只比较几个接口相互一致，否则共同的错误也可能通过。超时和故障注入可以使用受控搜索器，正常匹配必须经过真实索引。
+
+| 测试组 | 必须验证的行为 |
+|---|---|
+| MCP 协议与 schema | 经 HTTP handler 完成 initialize → tools/list → tools/call；工具清单包含 list_repos、search、search_raw，参数说明与实际默认值一致；无效 JSON、未知工具、参数类型错误有明确错误，新 search 拒绝未知参数；保留已有协议和 Origin 测试 |
+| 新 search 查询语义 | files 仅匹配路径并返回文件；snippets 仅匹配内容；pattern 中空格/括号/转义保留为 regex；分组、OR、单词边界和有界跨行匹配；默认不敏感及显式敏感同时作用于 pattern/path_regex |
+| 新 search 范围 | repo 精确名称数组 OR，与 path_regex、pattern 做 AND；同名文件不会跨仓库泄漏；路径在任意深度匹配，锚定有效；regex 的所有 OR 分支均受外层范围限定；空 repo 数组报错 |
+| 路径与索引入口 | Windows 输入在索引边界规范化后可用 `/` 查询；返回的索引相对路径和本地绝对路径分别正确；索引根与磁盘路径不能混用；`\b`、`\d`、`\.` 不被路径规范化改写；相关 fixture 在 Windows 和 Linux 执行 |
+| 新 search 结果和边界 | 行号、命中范围、前后 context、首尾裁剪、跨行命中、重叠/相邻窗口合并、每文件片段数、文件上限准确；上下文不得冒充命中；确实省略结果才设置裁剪，期限和错误状态不得伪装成完整零结果 |
+| 新 search 参数 | 缺失/空 pattern、非法 regex、越界数字、无效枚举；files 模式传 snippets 参数报错；默认 200 文件、20 片段、5 行、3000 ms 与第 2 节一致；大上限校验与实际结果限制分别测试 |
+| search_raw 兼容 | query/prefix 拼接、引号转义、原生 file/content、AND/or/否定/type:filename 和 case:auto/no/yes；保留原有输出与能力；错误 regex 和无结果均覆盖。prefix 不是全局过滤，不能把新 search 的 AST 范围保证错误地套到 raw 上 |
+| HTTP POST | 经实际挂载的 `/api/search`、`/api/list` 路由调用，不只测内部 `/search` handler；Q/RepoIDs/Opts 的解析和传递；RepoIDs 省略、空数组及非空数组；真实 regex/路径/大小写/文件查询、NumContextLines、显示限制和期限；缺少 Q、非法 JSON/regex、错误方法和引擎错误的状态码及响应体 |
+| HTTP GET | 经 `/search?format=json` 验证 q/num/ctx；URL 编码后正则中的 `+`、`&`、`#`、反斜杠、空格和 Unicode 正确传递；保留当前 ctx 0–10、默认值及错误行为，不能直接套用新 MCP 的 0–50；补复杂正则、过滤、文件列表、零结果和上下文边界 |
+| 跨接口结果 | 在小 fixture 无裁剪、参数明确对齐时，比较仓库、逻辑文件路径、真实命中行/范围和解码后的文本；允许新 MCP 合并上下文、HTTP 返回结构不同。原生接口显式 case:no 才能与新 search 默认不敏感做等价比较 |
+
+search_raw 的兼容性基线来自旧 MCP search，相同输入除工具名外应保持原生查询含义。对包含 Boolean or 的范围查询，分别验证原来的未分组语义与正确分组语义，不通过测试把错误的全局过滤假设固化下来。
+
+### 10.3 HTTP / Vim 插件兼容性与执行方式
+
+当前上下文中尚未确定 Vim 插件使用 POST JSON 还是 GET JSON；两条搜索入口都列入必做回归，不因此阻塞设计。实现时读取插件代码或真实请求样例，增加与插件实际请求、解析及文件跳转方式一致的用例。
+
+HTTP 的兼容性要求：
+
+- 保留请求路由、字段名、默认行为和响应层级：POST 使用 `Result.Files/LineMatches`；GET 使用 `result.FileMatches/Matches`。不能因新增 MCP search 而统一成同一种响应格式。
+- 保留现有字段类型和编码：POST 的非空 Line/Before/After 字节字段使用 JSON base64 表示，空值编码也保持兼容；GET 的 Fragments 是包含 Pre/Match/Post 字符串的对象数组，Before/After 是字符串。断言换行、Unicode、行号和偏移量正确，Vim quickfix/location list 所需的文件路径、命中行及正文应能正确提取。
+- 新 MCP 的 `/` 相对路径规范不能直接覆盖 HTTP 既有 FileName 的绝对路径行为；已能跳转到本地文件的 Windows 路径必须继续可用。跨接口比较时只在测试归一化层转换，不改变线上响应来让测试通过。
+- 除明确提出并测试的修复外，保留现有参数/错误语义，包括 GET 的错误状态和 POST 的错误对象；MCP 增加参数或改名不隐式修改 HTTP。插件若依赖文件详情入口，再补该实际调用链的回归。
+
+普通 CI 执行新旧 MCP、HTTP 和共享 fixture 的正确性测试；对路径相关测试增加 Windows/Linux 覆盖。MCP handler 的 fake 测试用于协议和错误分支，另加真实索引与 `httptest.NewServer` 集成测试覆盖传输和匹配。实现后可用以下命令运行对应测试包，具体依赖遵循现有 CI 配置：
+
+```powershell
+go test ./cmd/zoekt-webserver ./internal/json ./web -count=1
+```
+
+Unreal 性能回归在有该索引的固定测试机上执行，不把 Unreal 源码放入普通 CI。此次仅补设计，尚未编写或执行以上新增测试。
+
 ## 11. Unreal 实测与自动性能回归
 
 ### 11.1 现在验证什么，实现后再验证什么
 
 现在就验证已有引擎的正则、文件过滤和性能，作为实现前基线。新参数的 AST 构造、默认大小写、每文件片段数、上下文合并、完成状态及 MCP 编码开销，需要新接口实现并部署后再次验证。旧 MCP 成功不代表新接口已经通过验收。
 
-测试分三层：
+Unreal 性能测试以真实 MCP 接口为主：新 search 的 files/snippets 和 search_raw 都必须通过 `tools/call` 跑完对应用例。HTTP 性能作为独立的 Vim 插件兼容性回归和诊断对照；只有 HTTP 或引擎达标，不能判定 MCP 达标。当前已有数字来自旧 HTTP 接口，不是 MCP 性能基线。
+
+测试分四层：
 
 | 层次 | 语料及目的 | 执行时机 |
 |---|---|---|
-| 正确性 | 小型可控临时索引；精确断言命中、跨行范围、首尾行、路径分隔符、OR 不越过 repo/path 限定 | 普通 CI，每次修改 |
+| 正确性 | 小型可控临时索引；通过各接口断言命中、上下文、过滤、编码与兼容性，详见第 10 节 | 普通 CI，每次修改 |
 | 引擎基线 | 当前 Unreal 索引；原生查询与 SearchOptions 固定，观察候选扫描、加载和返回成本 | 现在，以及新 build/index 完成后 |
-| 接口回归 | 同一 Unreal 语料；新 search 的 files/snippets 与 search_raw，包含格式化和真实 MCP 响应 | 接口实现后，部署验收 |
+| MCP 主验收 | 同一 Unreal 语料；新 search 的 files/snippets 与 search_raw，包含真实 MCP 请求、搜索、格式化和完整响应 | 接口实现后，部署必做 |
+| HTTP 独立回归 | 同一 Unreal 语料；POST `/api/search` 和 GET `/search?format=json`，覆盖插件默认调用和复杂查询 | 接口实现后，部署必做 |
 
 Unreal 是主测试目标：它就是用户经常搜索的大型 C++ 代码库，比换一个较小仓库更贴近实际需求。小型 fixture 用于保证准确性，不能代替大库性能测试。暂不增加 Chromium 等大型语料；未来若要测大量独立仓库，可复用已有合成分片 benchmark。
 
@@ -393,11 +448,11 @@ python scripts/benchmark_search.py --repo ue --include-stress --case weak_branch
 ### 11.5 纳入实现计划的性能验收
 
 1. **先做确定性 fixture**：检验完整正则参数、文件过滤、大小写、首尾行/短文件/空文件/无末尾换行、跨行片段、重叠合并、真实裁剪与超时传播。少返回正确结果不能抵消漏搜或过滤错误。
-2. **复用这批 Unreal 用例**：实现后为脚本增加新 MCP `search`/`search_raw` 适配器，通过真实 `tools/call` 测试，而非只测 `/api/search`。统一用例意图，但分别映射新旧参数；验证语义一致，不能把旧的全局命中数限制当作新的每文件片段限制。
-3. **补适配层 Go benchmark**：分别测 AST 构造、上下文合并、输出编码与分配；随后在实际索引上跑 MCP 端到端。新 MCP 的时间和返回大小单列，不覆盖旧 JSON HTTP 指标。
+2. **优先完成 MCP 主套件**：实现后扩展脚本，以新 MCP `search` 的 files/snippets 和 `search_raw` 为默认主验收，通过真实 `tools/call` 测试。需要旧版对比时使用独立的 legacy 调用配置，向旧 search 传 query/prefix；新工具缺失时明确失败，禁止静默退回 HTTP 或旧工具。统一用例意图，但分别映射新旧参数；验证语义一致，不能把旧的全局命中数限制当作新的每文件片段限制。
+3. **补接口 Go benchmark 与 HTTP 套件**：分别测 AST 构造、上下文合并、各接口的输出编码与分配；增加 MCP handler、POST JSON handler、GET JSON handler benchmark。随后在实际 Unreal 索引上跑 MCP、HTTP POST、HTTP GET 三组端到端测试。各接口耗时和返回大小单列，微基准不能替代真实接口验收。
 4. **区分负载等级**：正常选择性查询、全库较多结果、短词/通配压力查询分组报告。context_lines 测 0/5/20；files 测 200/2000/20000；snippets 分开测每文件 20/200 和受控的大文件数。大响应压力测试必须受期限和部署边界保护，不能在普通 CI 里无约束物化最大值乘积。
 5. **固定比较条件**：同一机器、CPU/并发设置、build 模式、原始语料和索引配置；索引完成后测试，保持查询和返回限制相同。当前报告记录语料规模及索引元数据，但它们不等同于完整语料校验。新旧 build 的严格对比应使用冻结的源文件集合。
-6. **自动汇总和判定**：后续脚本适配器增加 baseline 比较，按组输出 p50/p95/max、HTTP/MCP 延迟、响应体积、扫描/裁剪信号与语义差异。有效负载减少、超时或结果不完整不能计为性能改善。连续两轮超过基线 20% 且绝对增加超过 5 ms 时提示退化，再用 profiling 定位；具体阈值根据固定测试机噪声校准。
+6. **自动汇总和判定**：后续脚本适配器增加 baseline 比较，按接口、查询组输出 p50/p95/max、HTTP/MCP 延迟、响应体积、扫描/裁剪信号与语义差异；MCP 是主报告，HTTP 两条入口各有独立回归结论，不能混成一个平均值。有效负载减少、超时或结果不完整不能计为性能改善。连续两轮超过各自基线 20% 且绝对增加超过 5 ms 时提示退化，再用 profiling 定位；具体阈值根据固定测试机噪声校准。
 7. **分开测热、冷和并发**：日常性能门禁使用明确预热、至少 100 次正常查询样本，主要看 p95；当前 30 次是初步基线。冷启动需单独受控启动并注明页缓存状态，不以“第一次查询”冒充冷缓存；并发 1 与 4 分开测试，统计排队。压力探测独立执行，不掺入正常组。
 
 建议初始目标，待新接口在固定机器上实测后冻结为门禁：
@@ -409,3 +464,25 @@ python scripts/benchmark_search.py --repo ue --include-stress --case weak_branch
 | 缺少有效固定串、巨大结果 | 不要求几十毫秒完成；要求期限、取消和部分结果状态正确 | 允许超时，但必须显式呈现，限制资源占用 |
 
 首版更有效的优化方向是保持有区分度的固定串、在查询树内提前施加目录过滤、避免不必要的正文读取和重复上下文，之后再依据 CPU/内存 profile 调整候选扫描或聚合。不能通过悄悄放宽过滤、缩减覆盖范围或只改说明来达成性能目标。现有实测支持限定范围的复杂正则达到几毫秒至几十毫秒，也明确显示某些全库正则会达到几百毫秒甚至秒级。
+
+### 11.6 MCP 主验收与 HTTP 回归的具体执行口径
+
+以下为待实现脚本能力，当前脚本仍只支持 POST `/api/search`。
+
+| 套件 | 真实请求链路 | 验收责任 |
+|---|---|---|
+| 新 MCP search | 初始化并获取 schema 后，通过 `/mcp` 的 tools/call 分别调用 files/snippets | 主要性能目标；覆盖默认参数、复杂 regex/路径过滤、上下文和较大返回 |
+| MCP search_raw | 同一 MCP 会话/协议配置，通过 tools/call 调用原生查询 | 原生兼容性及独立性能回归，不能由新 search 的结果代替 |
+| 旧 MCP 基线 | 对旧服务显式调用 search(query, prefix)，结果单独标注 legacy | 与改名后的 search_raw 做同参数比较；不得假定旧服务支持新参数 |
+| HTTP POST | `/api/search` 的真实 JSON 请求；按需调用 `/api/list` 准备仓库选择 | 复用现有基线，加插件实际默认参数与缺省 Opts 的用例 |
+| HTTP GET | `/search?format=json&q=...&num=...&ctx=...`，由 URL 编码器生成请求 | 新增独立基线，覆盖网页 JSON 格式化与插件实际请求方式 |
+
+MCP 的主要延迟从发出 tools/call 到收到完整响应计算，包含请求解析、排队、搜索、片段生成、结果编码和传输；初始化和 tools/list 单列，不能混入每次搜索计时。解析结果还需验证 JSON-RPC error 和工具 isError，HTTP 200 不代表搜索成功。缺少预期工具、参数被忽略或不能解析结果均为失败。
+
+HTTP 继续记录发送至收完响应的时间。MCP/HTTP 均另行记录客户端解码及结果验证耗时，避免旧 HTTP 基线不含 JSON 解码、新 MCP 基线却包含，造成错误比较。Vim UI 刷新和模型阅读不计入服务接口耗时；插件实际使用的编码、解析和文件跳转通过兼容性用例验收。
+
+各接口运行两种配置：一组使用该接口真实默认值和插件实际请求，发现使用体验退化；另一组显式对齐可等价的语义与选项，用于定位接口额外开销。保留 HTTP 默认扫描限额估算的测试，不能因为当前引擎对照脚本绕过该估算，就宣称覆盖了插件默认性能。GET ctx 上限 10 与 MCP context_lines 上限 50 分别测试，跨接口对照只选共同支持的范围。
+
+MCP 若未暴露引擎 Stats，主报告仍以真实 tools/call 总耗时为准；可在独立的 HTTP 对照运行中采集引擎指标，但不能把那次查询的 Duration 当成本次 MCP 的内部耗时。额外统计请求不放入主计时区间；并发测试也不能同时运行另一套基准干扰结果。
+
+在小 fixture 中严格验证完整预期集合；在 Unreal 上至少验证已知正向证据、路径/仓库约束、返回完整性或裁剪状态、同语料下的稳定性。对原生接口缺乏可靠完成标记的情况明确记为未知，不伪造新 MCP 的完成状态。结果正确性、MCP 延迟、HTTP 兼容性和 HTTP 延迟分别出结论，任一必做套件未运行或失败，都不能标记本次部署验收全部通过。

@@ -25,6 +25,28 @@ const (
 	mcpContentTypeSSE         = "text/event-stream"
 )
 
+const mcpSearchDescription = `Search indexed source code using the native Zoekt query language. Prefer precise regular expressions.
+
+Repository and path filters:
+- Use list_repos to discover repository names. repo:<regex> (alias r:) matches repository names; anchor and escape the name for an exact match, e.g. r:^zoekt$.
+- file:<regex> (alias f:) filters the entire indexed relative path, including directories and the filename. It does not match the displayed absolute filesystem path. The local index root itself is omitted: if D:/TnT is indexed with filenames such as Code/main.cpp, use file:^Code/, not file:TnT/Code/.
+- Indexed paths normally use /, including local-file indexes on Windows. / is a literal regex character and needs no escaping. A backslash is a regex escape, not an interchangeable path separator; do not paste Windows filesystem paths into file:. An unquoted [\\/] matches either stored separator if an index retains backslashes.
+- Path matching is unanchored unless you add anchors. file:TnT/Code matches any path containing that text, including TnT/CodeExtra/. Use file:TnT/Code/ for a trailing directory boundary, file:^TnT/Code/ for a directory at the index root, or file:(^|/)TnT/Code/ for complete directory names at any depth.
+- Use file:, not path: or dir:, which are not supported filters. Use type:filename to inspect indexed relative paths when a path filter unexpectedly returns no results.
+
+Content and regex syntax:
+- content:<regex> (alias c:) searches file contents only. A bare pattern or regex:<regex> searches both paths and contents. file: alone finds matching paths; add content: to search within those files, e.g. file:TnT/Code/ content:Render.
+- Patterns use Go/RE2-style regex syntax, not filesystem globs. Write foo.*bar, not /foo.*bar/: enclosing slashes are matched literally. Use ^ and $ as anchors, | for regex alternatives, and [.] or an unquoted \. for a literal dot, e.g. file:[.]cpp$.
+- Double quotes group text containing spaces; they do not make regex metacharacters literal. Quoted text consumes one level of backslash escaping. Prefer unquoted regexes when no spaces are needed. Examples here show query text after JSON decoding; JSON string escaping is a separate layer.
+- case:auto is the default: a pattern containing uppercase letters is case-sensitive. Add case:no for case-insensitive matching or case:yes to require exact case.
+
+Boolean operators and prefix:
+- Spaces mean AND, lowercase or means OR, and - negates the following term or group. Group alternatives with parentheses. The words and, not, AND, OR, and NOT are not Boolean operators.
+- prefix is prepended to query as text with a space; it is not a separately enforced scope. Group alternatives in both arguments so repo/path filters apply to every branch. file:^src/ content:foo or content:bar means (file:^src/ AND content:foo) OR content:bar, allowing bar outside src/.
+- Safe example: prefix="r:^zoekt$ file:^query/", query="(content:Parse or content:RegexpQuery)". With no prefix, write r:^zoekt$ file:^query/ (content:Parse or content:RegexpQuery).
+
+Other supported filters include lang:go, sym:Name, branch:main (alias b:), archived:yes/no, fork:yes/no, public:yes/no, and meta.<field>:<regex>. type:filename (alias type:file) returns path matches; type:repo returns repositories; type:filematch is the default. Results are limited, so refine broad searches with repository, path, and content filters.`
+
 var supportedMCPProtocolVersions = []string{
 	"2025-11-25",
 	"2025-06-18",
@@ -237,7 +259,7 @@ func (h *mcpHandler) handleInitialize(req mcpRequest) (mcpResponse, bool) {
 			"name":    h.serverName,
 			"version": h.serverVersion,
 		},
-		"instructions": "Use list_repos to discover repository filters and use search for code search. Regex queries are preferred.",
+		"instructions": "Use list_repos to discover repository names and search for indexed code. Follow the search tool's native Zoekt syntax guide: file: filters indexed relative paths, content: searches file contents, and / is a literal path separator, including in normalized Windows indexes. Group or alternatives when combining queries with repository/path filters or prefix.",
 	}), true
 }
 
@@ -391,7 +413,7 @@ func (h *mcpHandler) tools(version string) []map[string]any {
 	tools := []map[string]any{
 		{
 			"name":        "list_repos",
-			"description": "List all repositories available on the Zoekt server. Use this to find r:repo_name filters.",
+			"description": "List all repositories available on the Zoekt server. Use these names with repo:<regex> (alias r:); anchor and escape a name for exact matching, e.g. r:^zoekt$.",
 			"inputSchema": map[string]any{
 				"type":                 "object",
 				"properties":           map[string]any{},
@@ -400,17 +422,17 @@ func (h *mcpHandler) tools(version string) []map[string]any {
 		},
 		{
 			"name":        "search",
-			"description": "Search code using Zoekt. Strongly prefer regex queries. To filter by repo, use prefix like r:my-repo.",
+			"description": mcpSearchDescription,
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "The search query. Prefer regex for fuzzy matching, for example '(init|setup).+context'.",
+						"description": "A native Zoekt query. Use file:<regex> for indexed relative paths and content:<regex> for contents, e.g. 'file:TnT/Code/ content:Render'. Use / for normalized paths, without /regex/ delimiters. Group Boolean alternatives, e.g. '(content:init or content:setup)', when combined with filters or prefix. See the tool description for quoting, case sensitivity, and other filters.",
 					},
 					"prefix": map[string]any{
 						"type":        "string",
-						"description": "Optional prefix to prepend to the query, for example 'r:my-repo'.",
+						"description": "Optional native Zoekt expressions prepended verbatim to query with a space, e.g. 'r:^zoekt$ file:^query/'. This is text composition, not a separately enforced filter: parenthesize any or alternatives in both prefix and query to keep repository/path restrictions on every branch. Example: prefix 'r:^zoekt$ file:^query/' with query '(content:Parse or content:RegexpQuery)'.",
 					},
 				},
 				"required":             []string{"query"},

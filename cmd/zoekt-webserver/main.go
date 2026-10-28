@@ -156,6 +156,7 @@ func main() {
 	enableMCP := flag.Bool("mcp", false, "enable MCP over HTTP on the same listener")
 	mcpPath := flag.String("mcp_path", "/mcp", "HTTP path for the embedded MCP server")
 	mcpAllowedOrigins := flag.String("mcp_allowed_origins", "", "comma-separated allowlist of Origin values for the embedded MCP server. Empty accepts localhost origins and requests without Origin.")
+	mcpMaxResponseBytes := flag.Int("mcp_max_response_bytes", defaultMCPMaxResponseBytes, "maximum encoded response bytes per new MCP search (1024..268435456); retained search results are bounded at four times this value")
 	version := flag.Bool("version", false, "Print version number")
 
 	flag.Parse()
@@ -282,7 +283,12 @@ func main() {
 			allowedOrigins = strings.Split(*mcpAllowedOrigins, ",")
 		}
 
-		serveMux.Handle(path, newMCPHandler(s.Searcher, "zoekt-webserver", index.Version, allowedOrigins))
+		if *mcpMaxResponseBytes < 1024 || *mcpMaxResponseBytes > 256<<20 {
+			log.Fatal("mcp_max_response_bytes must be between 1024 and 268435456")
+		}
+		mcp := newMCPHandler(s.Searcher, "zoekt-webserver", index.Version, allowedOrigins)
+		mcp.maxResponseBytes = *mcpMaxResponseBytes
+		serveMux.Handle(path, mcp)
 	}
 
 	handler := trace.Middleware(serveMux)

@@ -55,13 +55,14 @@ var supportedMCPProtocolVersions = []string{
 }
 
 type mcpHandler struct {
-	searcher       zoekt.Streamer
-	serverName     string
-	serverVersion  string
-	allowedOrigins map[string]struct{}
+	searcher         zoekt.Streamer
+	serverName       string
+	serverVersion    string
+	allowedOrigins   map[string]struct{}
+	maxResponseBytes int
 }
 
-func newMCPHandler(searcher zoekt.Streamer, serverName, serverVersion string, allowedOrigins []string) http.Handler {
+func newMCPHandler(searcher zoekt.Streamer, serverName, serverVersion string, allowedOrigins []string) *mcpHandler {
 	originSet := make(map[string]struct{}, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
 		origin = strings.TrimSpace(origin)
@@ -72,14 +73,16 @@ func newMCPHandler(searcher zoekt.Streamer, serverName, serverVersion string, al
 	}
 
 	return &mcpHandler{
-		searcher:       searcher,
-		serverName:     serverName,
-		serverVersion:  serverVersion,
-		allowedOrigins: originSet,
+		searcher:         searcher,
+		serverName:       serverName,
+		serverVersion:    serverVersion,
+		allowedOrigins:   originSet,
+		maxResponseBytes: defaultMCPMaxResponseBytes,
 	}
 }
 
 func (h *mcpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r = r.WithContext(context.WithValue(r.Context(), mcpRequestStart{}, time.Now()))
 	if !h.isOriginAllowed(r.Header.Get("Origin")) {
 		h.writeHTTPError(w, http.StatusForbidden, newMCPErrorResponse(nil, -32000, "forbidden origin", nil))
 		return
@@ -259,7 +262,7 @@ func (h *mcpHandler) handleInitialize(req mcpRequest) (mcpResponse, bool) {
 			"name":    h.serverName,
 			"version": h.serverVersion,
 		},
-		"instructions": "Use list_repos to discover repository names and search for indexed code. Follow the search tool's native Zoekt syntax guide: file: filters indexed relative paths, content: searches file contents, and / is a literal path separator, including in normalized Windows indexes. Group or alternatives when combining queries with repository/path filters or prefix.",
+		"instructions": "Use list_repos for exact repository names. Use search with a regex pattern, repos and optional path_regex: files searches paths, snippets searches content with context. It defaults to case-insensitive matching. Paths use / and are relative to the index root. Use search_raw for native Zoekt query/prefix syntax and file-level Boolean combinations; it retains native case:auto and text-prefix semantics. Check completion and truncation status before concluding a result is absent.",
 	}), true
 }
 
@@ -275,19 +278,25 @@ func (h *mcpHandler) handleToolCall(ctx context.Context, params json.RawMessage)
 	case "list_repos":
 		return h.callListRepos(ctx)
 	case "search":
+		args, q, err := parseMCPSearchArgs(req.Arguments)
+		if err != nil {
+			return mcpToolResult{}, err
+		}
+		return h.callAgentSearch(ctx, args, q), nil
+	case "search_raw":
 		var args struct {
 			Query  string `json:"query"`
 			Prefix string `json:"prefix"`
 		}
 		if len(req.Arguments) > 0 {
 			if err := json.Unmarshal(req.Arguments, &args); err != nil {
-				return mcpToolResult{}, fmt.Errorf("invalid arguments for search")
+				return mcpToolResult{}, fmt.Errorf("invalid arguments for search_raw")
 			}
 		}
 		if strings.TrimSpace(args.Query) == "" {
 			return mcpToolResult{}, fmt.Errorf("missing required argument: query")
 		}
-		return h.callSearch(ctx, args.Query, args.Prefix), nil
+		return h.callSearchRaw(ctx, args.Query, args.Prefix), nil
 	default:
 		return mcpToolResult{}, fmt.Errorf("unknown tool: %s", req.Name)
 	}
@@ -331,7 +340,7 @@ func (h *mcpHandler) callListRepos(ctx context.Context) (mcpToolResult, error) {
 	}, nil
 }
 
-func (h *mcpHandler) callSearch(ctx context.Context, queryText, prefix string) mcpToolResult {
+func (h *mcpHandler) callSearchRaw(ctx context.Context, queryText, prefix string) mcpToolResult {
 	fullQuery := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(prefix), strings.TrimSpace(queryText)}, " "))
 	q, err := query.Parse(fullQuery)
 	if err != nil {
@@ -420,8 +429,9 @@ func (h *mcpHandler) tools(version string) []map[string]any {
 				"additionalProperties": false,
 			},
 		},
+		mcpAgentSearchTool(),
 		{
-			"name":        "search",
+			"name":        "search_raw",
 			"description": mcpSearchDescription,
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -529,10 +539,47 @@ func negotiateMCPProtocolVersion(requested string) string {
 }
 
 func (h *mcpHandler) writeJSON(w http.ResponseWriter, status int, version string, payload any) {
+	// Encode before writing any bytes so a deadline cannot produce half a JSON
+	// response. The new search formatter already bounds the escaped text size.
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+	refresh := func(response *mcpResponse) bool {
+		result, ok := response.Result.(mcpToolResult)
+		if !ok || result.searchStatus == nil || time.Now().Before(result.searchDeadline) {
+			return false
+		}
+		result.searchStatus.reason("timeout", true, false)
+		text := result.Content[0].Text
+		if end := strings.IndexByte(text, '\n'); end >= 0 {
+			text = text[end+1:]
+		}
+		result.Content[0].Text = result.searchStatus.header() + text
+		response.Result = result
+		return true
+	}
+	changed := false
+	switch response := payload.(type) {
+	case mcpResponse:
+		changed = refresh(&response)
+		payload = response
+	case []mcpResponse:
+		for i := range response {
+			if refresh(&response[i]) {
+				changed = true
+			}
+		}
+		payload = response
+	}
+	if changed {
+		encoded, _ = json.Marshal(payload)
+	}
 	w.Header().Set("Content-Type", mcpContentTypeJSON)
 	w.Header().Set("MCP-Protocol-Version", version)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	_, _ = w.Write(append(encoded, '\n'))
 }
 
 func (h *mcpHandler) writeHTTPError(w http.ResponseWriter, status int, payload mcpResponse) {
@@ -579,8 +626,10 @@ type mcpError struct {
 }
 
 type mcpToolResult struct {
-	Content []mcpToolTextContent `json:"content"`
-	IsError bool                 `json:"isError,omitempty"`
+	Content        []mcpToolTextContent `json:"content"`
+	IsError        bool                 `json:"isError,omitempty"`
+	searchStatus   *mcpSearchStatus
+	searchDeadline time.Time
 }
 
 type mcpToolTextContent struct {

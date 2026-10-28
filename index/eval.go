@@ -27,6 +27,7 @@ import (
 	"github.com/grafana/regexp"
 
 	"github.com/sourcegraph/zoekt"
+	"github.com/sourcegraph/zoekt/internal/searchbudget"
 	"github.com/sourcegraph/zoekt/internal/tenant"
 	"github.com/sourcegraph/zoekt/query"
 )
@@ -137,6 +138,8 @@ func (d *indexData) simplify(in query.Q) query.Q {
 
 func (d *indexData) Search(ctx context.Context, q query.Q, opts *zoekt.SearchOptions) (sr *zoekt.SearchResult, err error) {
 	timer := newTimer()
+	budget := searchbudget.From(ctx)
+	defer func() { budget.Finish(ctx, err) }()
 
 	copyOpts := *opts
 	opts = &copyOpts
@@ -241,6 +244,7 @@ nextFileMatch:
 			if opts.ShardRepoMaxMatchCount > 0 {
 				if repoMatchCount >= opts.ShardRepoMaxMatchCount && repoID == lastRepoID {
 					res.Stats.FilesSkipped++
+					budget.Mark(searchbudget.MatchLimit)
 					continue
 				}
 			}
@@ -260,8 +264,11 @@ nextFileMatch:
 			repoMatchCount = 0
 		}
 
-		if canceled || (res.Stats.MatchCount >= opts.ShardMaxMatchCount && opts.ShardMaxMatchCount > 0) {
+		if canceled || budget.Exhausted() || (res.Stats.MatchCount >= opts.ShardMaxMatchCount && opts.ShardMaxMatchCount > 0) {
 			res.Stats.FilesSkipped += int(docCount - nextDoc)
+			if !canceled && !budget.Exhausted() {
+				budget.Mark(searchbudget.MatchLimit)
+			}
 			break
 		}
 
@@ -348,11 +355,13 @@ nextFileMatch:
 		repoMatchCount += len(fileMatch.LineMatches)
 		repoMatchCount += matchedChunkRanges
 
-		res.Files = append(res.Files, fileMatch)
-
 		res.Stats.MatchCount += len(fileMatch.LineMatches)
 		res.Stats.MatchCount += matchedChunkRanges
 		res.Stats.FileCount++
+		if !budget.Reserve(&fileMatch) {
+			break
+		}
+		res.Files = append(res.Files, fileMatch)
 	}
 
 	for _, md := range d.repoMetaData {

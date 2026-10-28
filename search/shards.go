@@ -35,6 +35,7 @@ import (
 
 	"github.com/sourcegraph/zoekt"
 	"github.com/sourcegraph/zoekt/index"
+	"github.com/sourcegraph/zoekt/internal/searchbudget"
 	"github.com/sourcegraph/zoekt/internal/tenant/systemtenant"
 	"github.com/sourcegraph/zoekt/internal/trace"
 	"github.com/sourcegraph/zoekt/query"
@@ -529,6 +530,9 @@ func doSelectRepoSet(shards []*rankedShard, and *query.And) ([]*rankedShard, que
 }
 
 func (ss *shardedSearcher) Search(ctx context.Context, q query.Q, opts *zoekt.SearchOptions) (sr *zoekt.SearchResult, err error) {
+	budget := searchbudget.From(ctx)
+	originalCtx := ctx
+	defer func() { budget.Finish(originalCtx, err) }()
 	tr, ctx := trace.New(ctx, "shardedSearcher.Search", "")
 	tr.LazyLog(q, true)
 	tr.LazyPrintf("opts: %+v", opts)
@@ -577,6 +581,7 @@ func (ss *shardedSearcher) Search(ctx context.Context, q query.Q, opts *zoekt.Se
 	copyFiles(aggregate)
 
 	if !loaded.ready {
+		budget.Mark(searchbudget.IndexNotReady)
 		// We may have missed results due to not being fully loaded.
 		aggregate.Stats.Crashes++
 	}
@@ -765,6 +770,12 @@ func streamSearch(ctx context.Context, proc *process, q query.Q, opts *zoekt.Sea
 
 	// tracked so we can stop when we hit TotalMaxMatchCount
 	var totalMatchCount int
+	budget := searchbudget.From(ctx)
+	defer func() {
+		if ctx.Err() != nil {
+			budget.Mark(searchbudget.Timeout)
+		}
+	}()
 
 search:
 	for {
@@ -802,6 +813,12 @@ search:
 			// reached the limit set in the options.
 			totalMatchCount += r.SearchResult.Stats.MatchCount
 			if opts.TotalMaxMatchCount > 0 && totalMatchCount > opts.TotalMaxMatchCount {
+				if shard < len(shards) {
+					budget.Mark(searchbudget.MatchLimit)
+				}
+				stop()
+			}
+			if budget.Exhausted() {
 				stop()
 			}
 

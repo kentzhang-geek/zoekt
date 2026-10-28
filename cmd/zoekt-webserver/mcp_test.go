@@ -57,10 +57,10 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 		} `json:"result"`
 	}
 	decodeBody(t, listResp, &listBody)
-	if len(listBody.Result.Tools) != 2 {
-		t.Fatalf("tool count=%d want 2", len(listBody.Result.Tools))
+	if len(listBody.Result.Tools) != 3 {
+		t.Fatalf("tool count=%d want 3", len(listBody.Result.Tools))
 	}
-	if listBody.Result.Tools[0].Name != "list_repos" || listBody.Result.Tools[1].Name != "search" {
+	if listBody.Result.Tools[0].Name != "list_repos" || listBody.Result.Tools[1].Name != "search" || listBody.Result.Tools[2].Name != "search_raw" {
 		t.Fatalf("unexpected tools=%v", listBody.Result.Tools)
 	}
 }
@@ -126,7 +126,7 @@ func TestMCPSearchToolCall(t *testing.T) {
 		"jsonrpc":"2.0",
 		"id":1,
 		"method":"tools/call",
-		"params":{"name":"search","arguments":{"query":"init","prefix":"r:repo-a"}}
+		"params":{"name":"search_raw","arguments":{"query":"init","prefix":"r:repo-a"}}
 	}`)
 	if got := resp.Code; got != http.StatusOK {
 		t.Fatalf("tools/call status=%d want %d", got, http.StatusOK)
@@ -187,7 +187,7 @@ func TestMCPSearchToolCallResolvesLocalFilePath(t *testing.T) {
 		"jsonrpc":"2.0",
 		"id":1,
 		"method":"tools/call",
-		"params":{"name":"search","arguments":{"query":"init","prefix":"r:repo-a"}}
+		"params":{"name":"search_raw","arguments":{"query":"init","prefix":"r:repo-a"}}
 	}`)
 	if got := resp.Code; got != http.StatusOK {
 		t.Fatalf("tools/call status=%d want %d", got, http.StatusOK)

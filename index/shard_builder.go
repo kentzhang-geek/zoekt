@@ -306,12 +306,18 @@ func (b *ShardBuilder) setRepository(desc *zoekt.Repository) error {
 	}
 
 	repo := *desc
+	if len(desc.FileTombstones) > 0 {
+		repo.FileTombstones = make(map[string]struct{}, len(desc.FileTombstones))
+		for name := range desc.FileTombstones {
+			repo.FileTombstones[filepath.ToSlash(name)] = struct{}{}
+		}
+	}
 
 	// copy subrepomap without root
 	repo.SubRepoMap = map[string]*zoekt.Repository{}
 	for k, v := range desc.SubRepoMap {
 		if k != "" {
-			repo.SubRepoMap[k] = v
+			repo.SubRepoMap[filepath.ToSlash(k)] = v
 		}
 	}
 
@@ -420,6 +426,10 @@ func DetermineLanguageIfUnknown(doc *Document) {
 
 // Add a file which only occurs in certain branches.
 func (b *ShardBuilder) Add(doc Document) error {
+	// Normalize native separators at the indexing boundary, never in regexes.
+	// ToSlash leaves literal backslashes intact on Unix.
+	doc.Name = filepath.ToSlash(doc.Name)
+	doc.SubRepositoryPath = filepath.ToSlash(doc.SubRepositoryPath)
 	if index := bytes.IndexByte(doc.Content, 0); index > 0 {
 		doc.SkipReason = SkipReasonBinary
 	}

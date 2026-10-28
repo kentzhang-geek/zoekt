@@ -1,0 +1,247 @@
+{
+  "timestamp_utc": "2026-10-28T06:55:03.991871+00:00",
+  "label": "legacy-weak-branch-probe",
+  "url": "http://127.0.0.1:6070",
+  "repo": "ue",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+  "python": "3.13.7",
+  "transport": "serial HTTP JSON with connection reuse; excludes client JSON decode",
+  "cache": "uncontrolled existing server; first sample is NOT a cold-cache claim",
+  "completion": "legacy API has no definitive completion flag; zero signals do not prove completeness",
+  "warmup": 0,
+  "runs": 3,
+  "options": {
+    "MaxWallTime": 3000000000,
+    "MaxDocDisplayCount": 200,
+    "MaxMatchDisplayCount": 4000,
+    "NumContextLines": 5,
+    "ShardMaxMatchCount": 100000,
+    "TotalMaxMatchCount": 1000000
+  },
+  "cases": [
+    {
+      "case": {
+        "id": "weak_branch",
+        "query": "content:(RegisterExternalTexture|xx.+)",
+        "stress": true
+      },
+      "samples": [
+        {
+          "engine_ms": 3019.9944,
+          "queue_ms": 0.0,
+          "http_ms": 3021.5923,
+          "response_bytes": 36788,
+          "returned_files": 20,
+          "counters": {
+            "FileCount": 2132,
+            "MatchCount": 10548,
+            "FilesConsidered": 40688,
+            "FilesLoaded": 40688,
+            "FilesSkipped": 127345,
+            "ShardsScanned": 17,
+            "ShardsSkipped": 0,
+            "Crashes": 0,
+            "ContentBytesLoaded": 428072392,
+            "IndexBytesLoaded": 0,
+            "RegexpsConsidered": 40688,
+            "NgramLookups": 0,
+            "NgramMatches": 0
+          },
+          "partial_or_limit_signals": [
+            "FilesSkipped",
+            "files_omitted_from_response",
+            "at_file_display_limit",
+            "near_deadline"
+          ],
+          "signature": "bcc45a5fd4f3d5503dd9205405f54f2ce0c6a9c3f0db33178a162ecbcd8b0440",
+          "errors": []
+        },
+        {
+          "engine_ms": 3006.2509,
+          "queue_ms": 0.0,
+          "http_ms": 3007.577,
+          "response_bytes": 36794,
+          "returned_files": 20,
+          "counters": {
+            "FileCount": 2243,
+            "MatchCount": 11213,
+            "FilesConsidered": 42462,
+            "FilesLoaded": 42462,
+            "FilesSkipped": 125571,
+            "ShardsScanned": 17,
+            "ShardsSkipped": 0,
+            "Crashes": 0,
+            "ContentBytesLoaded": 447177983,
+            "IndexBytesLoaded": 0,
+            "RegexpsConsidered": 42462,
+            "NgramLookups": 0,
+            "NgramMatches": 0
+          },
+          "partial_or_limit_signals": [
+            "FilesSkipped",
+            "files_omitted_from_response",
+            "at_file_display_limit",
+            "near_deadline"
+          ],
+          "signature": "bcc45a5fd4f3d5503dd9205405f54f2ce0c6a9c3f0db33178a162ecbcd8b0440",
+          "errors": []
+        },
+        {
+          "engine_ms": 3012.7593,
+          "queue_ms": 0.0,
+          "http_ms": 3013.8939,
+          "response_bytes": 36793,
+          "returned_files": 20,
+          "counters": {
+            "FileCount": 2136,
+            "MatchCount": 10659,
+            "FilesConsidered": 40326,
+            "FilesLoaded": 40326,
+            "FilesSkipped": 127707,
+            "ShardsScanned": 17,
+            "ShardsSkipped": 0,
+            "Crashes": 0,
+            "ContentBytesLoaded": 424551606,
+            "IndexBytesLoaded": 0,
+            "RegexpsConsidered": 40326,
+            "NgramLookups": 0,
+            "NgramMatches": 0
+          },
+          "partial_or_limit_signals": [
+            "FilesSkipped",
+            "files_omitted_from_response",
+            "at_file_display_limit",
+            "near_deadline"
+          ],
+          "signature": "bcc45a5fd4f3d5503dd9205405f54f2ce0c6a9c3f0db33178a162ecbcd8b0440",
+          "errors": []
+        }
+      ],
+      "options": {
+        "MaxWallTime": 3000000000,
+        "MaxDocDisplayCount": 20,
+        "MaxMatchDisplayCount": 200,
+        "NumContextLines": 0,
+        "ShardMaxMatchCount": 100000,
+        "TotalMaxMatchCount": 1000000
+      },
+      "first_observation": {
+        "engine_ms": 3077.7433,
+        "queue_ms": 0.0,
+        "http_ms": 3079.0909,
+        "response_bytes": 36788,
+        "returned_files": 20,
+        "counters": {
+          "FileCount": 2350,
+          "MatchCount": 11700,
+          "FilesConsidered": 44411,
+          "FilesLoaded": 44411,
+          "FilesSkipped": 123622,
+          "ShardsScanned": 17,
+          "ShardsSkipped": 0,
+          "Crashes": 0,
+          "ContentBytesLoaded": 469802338,
+          "IndexBytesLoaded": 0,
+          "RegexpsConsidered": 44411,
+          "NgramLookups": 0,
+          "NgramMatches": 0
+        },
+        "partial_or_limit_signals": [
+          "FilesSkipped",
+          "files_omitted_from_response",
+          "at_file_display_limit",
+          "near_deadline"
+        ],
+        "signature": "bcc45a5fd4f3d5503dd9205405f54f2ce0c6a9c3f0db33178a162ecbcd8b0440",
+        "errors": []
+      },
+      "summary": {
+        "engine_ms": {
+          "min": 3006.2509,
+          "p50": 3012.7593,
+          "p95": 3019.9944,
+          "max": 3019.9944,
+          "mean": 3013.0015333333336
+        },
+        "queue_ms": {
+          "min": 0.0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0
+        },
+        "http_ms": {
+          "min": 3007.577,
+          "p50": 3013.8939,
+          "p95": 3021.5923,
+          "max": 3021.5923,
+          "mean": 3014.3544
+        },
+        "response_bytes": {
+          "min": 36788,
+          "p50": 36793,
+          "p95": 36794,
+          "max": 36794,
+          "mean": 36791.666666666664
+        },
+        "returned_files": {
+          "min": 20,
+          "p50": 20,
+          "p95": 20,
+          "max": 20,
+          "mean": 20
+        }
+      },
+      "partial_or_limit_signals": [
+        "FilesSkipped",
+        "at_file_display_limit",
+        "files_omitted_from_response",
+        "near_deadline"
+      ],
+      "stable_results": true
+    }
+  ],
+  "corpus": {
+    "stats": {
+      "Repos": 1,
+      "Shards": 17,
+      "Documents": 168033,
+      "IndexBytes": 10285240,
+      "ContentBytes": 1752728867,
+      "NewLinesCount": 46918632,
+      "DefaultBranchNewLinesCount": 0,
+      "OtherBranchesNewLinesCount": 0
+    },
+    "indexes": [
+      {
+        "repo": "ue",
+        "metadata": {
+          "IndexFormatVersion": 16,
+          "IndexFeatureVersion": 12,
+          "IndexMinReaderVersion": 10,
+          "IndexTime": "2026-04-15T11:23:34.9557899-07:00",
+          "PlainASCII": false,
+          "LanguageMap": {
+            "": 11,
+            "Batchfile": 2,
+            "C": 4,
+            "C#": 3,
+            "C++": 6,
+            "CMake": 7,
+            "JSON": 8,
+            "JSON with Comments": 12,
+            "Meson": 9,
+            "Objective-C": 10,
+            "Python": 0,
+            "Text": 1,
+            "XML": 5
+          },
+          "ZoektVersion": "",
+          "ID": "d7ftf9jmcebf2i05ph5g"
+        }
+      }
+    ]
+  },
+  "passed": true
+}

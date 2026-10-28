@@ -594,6 +594,8 @@ func (b *Builder) AddFile(name string, content []byte) error {
 }
 
 func (b *Builder) Add(doc Document) error {
+	doc.Name = filepath.ToSlash(doc.Name)
+	doc.SubRepositoryPath = filepath.ToSlash(doc.SubRepositoryPath)
 	if b.finishCalled {
 		return nil
 	}
@@ -632,7 +634,7 @@ func (b *Builder) Add(doc Document) error {
 //
 // If this build is a delta build, these files will be tombstoned in the older shards for this repository.
 func (b *Builder) MarkFileAsChangedOrRemoved(path string) {
-	b.opts.changedOrRemovedFiles = append(b.opts.changedOrRemovedFiles, path)
+	b.opts.changedOrRemovedFiles = append(b.opts.changedOrRemovedFiles, filepath.ToSlash(path))
 }
 
 // Finish creates a last shard from the buffered documents, and clears

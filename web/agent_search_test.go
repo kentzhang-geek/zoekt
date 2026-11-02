@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,9 +69,26 @@ func TestHTTPRealIndexSearchContracts(t *testing.T) {
 				}
 			}
 			// LineMatch results are ranked, so compare source-line sets.
-			sortInts(postLines)
+			slices.Sort(postLines)
 			if !reflect.DeepEqual(postLines, tt.lines) {
 				t.Fatalf("POST lines=%v want=%v", postLines, tt.lines)
+			}
+			if tt.name == "last line" {
+				match := post.Result.Files[0].LineMatches[0]
+				if string(match.Before) != "Alpha Beta\nspace + & # 中文\n" || len(match.After) != 0 {
+					t.Fatalf("POST context: %+v", match)
+				}
+				var wire struct {
+					Result struct {
+						Files []struct{ LineMatches []struct{ Line any } }
+					}
+				}
+				if err := json.Unmarshal(postRaw, &wire); err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := wire.Result.Files[0].LineMatches[0].Line.(string); !ok {
+					t.Fatal("POST Line must remain a base64 string")
+				}
 			}
 			query := url.Values{"q": {tt.q}, "format": {"json"}, "ctx": {"2"}, "num": {"20"}}
 			res, err = http.Get(srv.URL + "/search?" + query.Encode())
@@ -95,7 +113,7 @@ func TestHTTPRealIndexSearchContracts(t *testing.T) {
 					getLines = append(getLines, m.LineNum)
 				}
 			}
-			sortInts(getLines)
+			slices.Sort(getLines)
 			if !reflect.DeepEqual(getLines, tt.lines) {
 				t.Fatalf("GET lines=%v want=%v", getLines, tt.lines)
 			}
@@ -116,14 +134,6 @@ func TestHTTPRealIndexSearchContracts(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func sortInts(values []int) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
 	}
 }
 

@@ -63,10 +63,17 @@ func TestMCPRealIndexSearch(t *testing.T) {
 		{"files", map[string]any{"mode": "files", "pattern": "target[.]go$", "repos": []string{"repo.a"}, "path_regex": "^src/"}, []string{`path="Src/Target.go"`}, []string{"Alpha()", "lines="}, 1},
 		{"content only", map[string]any{"pattern": "Alpha", "repos": []string{"repo.a"}, "path_regex": "^Src/Alpha[.]go$"}, []string{"search_complete=true output_truncated=false"}, []string{"repo="}, 0},
 		{"case sensitive", map[string]any{"pattern": "alpha", "case": "sensitive", "repos": []string{"repo.a"}}, nil, []string{"repo="}, 0},
+		{"word boundary folding", map[string]any{"pattern": `\balpha\b`, "repos": []string{"repo.a"}, "context_lines": 0}, []string{"1>| Alpha()", "5>| Alpha Beta"}, nil, 1},
+		{"inline sensitive", map[string]any{"pattern": `(?-i:alpha)`, "repos": []string{"repo.a"}}, nil, []string{"repo="}, 0},
+		{"inline insensitive", map[string]any{"pattern": `(?i:alpha)`, "case": "sensitive", "repos": []string{"repo.a"}, "context_lines": 0}, []string{"1>| Alpha()", "5>| Alpha Beta"}, nil, 1},
 		{"path case sensitive", map[string]any{"pattern": "Alpha", "case": "sensitive", "path_regex": "^src/", "repos": []string{"repo.a"}}, nil, []string{"repo="}, 0},
 		{"exact repo", map[string]any{"pattern": "Beta", "repos": []string{"repo"}}, nil, []string{"repo="}, 0},
 		{"repo OR", map[string]any{"pattern": "Beta", "repos": []string{"repo.a", "repo-b"}, "path_regex": "^Src/Target[.]go$"}, []string{`repo="repo.a"`, `repo="repo-b"`}, nil, 2},
 		{"short CRLF", map[string]any{"pattern": "Second", "repos": []string{"repo.a"}}, []string{"lines=1-3", "1 | First", "2>| Second", "3 | Last"}, nil, 1},
+		{"adjacent windows", map[string]any{"pattern": "First|Second", "repos": []string{"repo.a"}, "context_lines": 0, "max_snippets_per_file": 1}, []string{"lines=1-2", "1>| First", "2>| Second", "output_truncated=false"}, nil, 1},
+		{"empty file zero width", map[string]any{"pattern": `\A\z`, "repos": []string{"repo.a"}, "path_regex": "Empty[.]go$", "context_lines": 0}, []string{"lines=1-1", "1>| "}, nil, 1},
+		{"EOF zero width", map[string]any{"pattern": `\z`, "repos": []string{"repo.a"}, "path_regex": "Short[.]go$", "context_lines": 0}, []string{"3>| Last"}, nil, 1},
+		{"EOF after newline", map[string]any{"pattern": `\z`, "repos": []string{"repo.a"}, "path_regex": "Unicode[.]go$"}, []string{"lines=1-2", "1 | é 中文()", "2>| "}, nil, 1},
 		{"unicode", map[string]any{"pattern": `中文\(`, "repos": []string{"repo.a"}}, []string{"1>| é 中文()"}, nil, 1},
 		{"file cap observed", map[string]any{"mode": "files", "pattern": "[.]go$", "max_files": 1}, []string{"output_truncated=true", "file_limit"}, nil, 1},
 		{"file cap exact", map[string]any{"mode": "files", "pattern": "Empty[.]go$", "repos": []string{"repo.a"}, "max_files": 1}, []string{"search_complete=true output_truncated=false"}, nil, 1},
@@ -98,6 +105,7 @@ func TestMCPNewArguments(t *testing.T) {
 	for _, raw := range []string{
 		`null`, `[]`, `{}`, `{"pattern":null}`, `{"pattern":""}`, `{"pattern":1}`, `{"pattern":"["}`,
 		`{"pattern":"foo","query":"bar"}`, `{"pattern":"foo","case":"auto"}`, `{"pattern":"foo","mode":"summary"}`,
+		`{"Pattern":"foo"}`, `{"pattern":"foo","MODE":"files"}`,
 		`{"pattern":"foo","repos":[]}`, `{"pattern":"foo","repos":[""]}`, `{"pattern":"foo","repos":null}`,
 		`{"pattern":"foo","context_lines":-1}`, `{"pattern":"foo","context_lines":51}`, `{"pattern":"foo","max_files":0}`,
 		`{"pattern":"foo","max_files":20001}`, `{"pattern":"foo","max_files":1.5}`, `{"pattern":"foo","timeout_ms":99}`,
@@ -114,6 +122,42 @@ func TestMCPNewArguments(t *testing.T) {
 	a, _, err := parseMCPSearchArgs([]byte(`{"pattern":" "}`))
 	if err != nil || a.Case != "insensitive" || a.ContextLines != 5 || a.MaxFiles != 200 || a.MaxSnippetsPerFile != 20 || a.TimeoutMS != 3000 {
 		t.Fatalf("defaults: %+v %v", a, err)
+	}
+}
+
+func TestMCPProtocolErrorsAndSchema(t *testing.T) {
+	h := newMCPHandler(fakeStreamer{}, "test", "dev", nil)
+	for _, tt := range []struct {
+		body         string
+		status, code int
+	}{
+		{`{`, 200, -32700}, // Existing single-message JSON-RPC error contract.
+		{`{"jsonrpc":"2.0","id":1}`, 200, -32600},
+		{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"missing"}}`, 200, -32602},
+		{`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"pattern":"x","path":"Src"}}}`, 200, -32602},
+	} {
+		r := postMCP(t, h, tt.body)
+		var body mcpResponse
+		if err := json.Unmarshal(r.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if r.Code != tt.status || body.Error == nil || body.Error.Code != tt.code {
+			t.Fatalf("%s: %d %+v", tt.body, r.Code, body)
+		}
+	}
+	schema := h.tools(defaultMCPProtocolVersion)[1]["inputSchema"].(map[string]any)
+	properties := schema["properties"].(map[string]any)
+	defaults, _, err := parseMCPSearchArgs([]byte(`{"pattern":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]any{"context_lines": defaults.ContextLines, "max_files": defaults.MaxFiles, "max_snippets_per_file": defaults.MaxSnippetsPerFile, "timeout_ms": defaults.TimeoutMS, "mode": defaults.Mode, "case": defaults.Case} {
+		if got := properties[name].(map[string]any)["default"]; got != want {
+			t.Errorf("%s default=%v want=%v", name, got, want)
+		}
+	}
+	if schema["additionalProperties"] != false {
+		t.Fatal("unknown args must be rejected")
 	}
 }
 

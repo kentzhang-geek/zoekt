@@ -156,7 +156,7 @@ func main() {
 	enableMCP := flag.Bool("mcp", false, "enable MCP over HTTP on the same listener")
 	mcpPath := flag.String("mcp_path", "/mcp", "HTTP path for the embedded MCP server")
 	mcpAllowedOrigins := flag.String("mcp_allowed_origins", "", "comma-separated allowlist of Origin values for the embedded MCP server. Empty accepts localhost origins and requests without Origin.")
-	mcpMaxResponseBytes := flag.Int("mcp_max_response_bytes", defaultMCPMaxResponseBytes, "maximum encoded response bytes per new MCP search (1024..268435456); retained search results are bounded at four times this value")
+	mcpMaxResponseBytes := flag.Int("mcp_max_response_bytes", defaultMCPMaxResponseBytes, "encoded response budget per new MCP search (1024..268435456); estimated retained result budget is four times this value")
 	version := flag.Bool("version", false, "Print version number")
 
 	flag.Parse()

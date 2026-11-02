@@ -1,0 +1,6 @@
+ok  	github.com/sourcegraph/zoekt/cmd/zoekt-webserver	0.166s
+ok  	github.com/sourcegraph/zoekt/web	0.202s
+ok  	github.com/sourcegraph/zoekt/internal/json	0.186s
+ok  	github.com/sourcegraph/zoekt/index	0.178s
+ok  	github.com/sourcegraph/zoekt/search	0.199s
+ok  	github.com/sourcegraph/zoekt/gitindex	0.134s

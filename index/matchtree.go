@@ -1308,6 +1308,9 @@ func regexpToWordMatchTree(q *query.Regexp, opt matchTreeOpt) (_ *wordMatchTree,
 	if sub[0].Op != syntax.OpWordBoundary || sub[1].Op != syntax.OpLiteral || sub[2].Op != syntax.OpWordBoundary {
 		return nil, false
 	}
+	if sub[1].Flags&syntax.FoldCase != 0 {
+		return nil, false
+	}
 
 	return &wordMatchTree{
 		word:     string(sub[1].Rune),

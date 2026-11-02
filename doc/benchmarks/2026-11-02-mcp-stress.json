@@ -1,0 +1,243 @@
+{
+  "timestamp_utc": "2026-11-02T03:11:35.099422+00:00",
+  "label": "unlabelled-server",
+  "url": "http://127.0.0.1:6070",
+  "repo": "ue",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+  "python": "3.13.7",
+  "profile": "defaults",
+  "runs": 3,
+  "warmup": 0,
+  "concurrency": 1,
+  "cases": [
+    {
+      "transport": "mcp",
+      "case": {
+        "id": "weak_branch",
+        "query": "content:(RegisterExternalTexture|xx.+)",
+        "pattern": "(RegisterExternalTexture|xx.+)",
+        "stress": true,
+        "min_files": 0
+      },
+      "options": {
+        "MaxWallTime": 3000000000,
+        "MaxDocDisplayCount": 20,
+        "MaxMatchDisplayCount": 200,
+        "NumContextLines": 0,
+        "ShardMaxMatchCount": 100000,
+        "TotalMaxMatchCount": 1000000,
+        "snippets": 20
+      },
+      "request": [
+        "search",
+        {
+          "pattern": "(RegisterExternalTexture|xx.+)",
+          "repos": [
+            "ue"
+          ],
+          "mode": "snippets",
+          "max_files": 20,
+          "timeout_ms": 3000,
+          "context_lines": 0,
+          "max_snippets_per_file": 20
+        }
+      ],
+      "samples": [
+        {
+          "engine_ms": null,
+          "queue_ms": null,
+          "transport_ms": 3009.6973,
+          "decode_ms": 0.0192,
+          "validation_ms": 0.0587,
+          "response_bytes": 154,
+          "returned_files": 0,
+          "search_complete": "false",
+          "counters": {},
+          "partial_or_limit_signals": [
+            "file_limit",
+            "output_truncated",
+            "search_incomplete",
+            "timeout"
+          ],
+          "signature": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "errors": []
+        },
+        {
+          "engine_ms": null,
+          "queue_ms": null,
+          "transport_ms": 3074.27,
+          "decode_ms": 0.0188,
+          "validation_ms": 0.0502,
+          "response_bytes": 154,
+          "returned_files": 0,
+          "search_complete": "false",
+          "counters": {},
+          "partial_or_limit_signals": [
+            "file_limit",
+            "output_truncated",
+            "search_incomplete",
+            "timeout"
+          ],
+          "signature": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "errors": []
+        },
+        {
+          "engine_ms": null,
+          "queue_ms": null,
+          "transport_ms": 3012.7734,
+          "decode_ms": 0.0188,
+          "validation_ms": 0.0493,
+          "response_bytes": 154,
+          "returned_files": 0,
+          "search_complete": "false",
+          "counters": {},
+          "partial_or_limit_signals": [
+            "file_limit",
+            "output_truncated",
+            "search_incomplete",
+            "timeout"
+          ],
+          "signature": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "errors": []
+        }
+      ],
+      "first_observation": {
+        "engine_ms": null,
+        "queue_ms": null,
+        "transport_ms": 3068.789,
+        "decode_ms": 0.0195,
+        "validation_ms": 0.5011,
+        "response_bytes": 154,
+        "returned_files": 0,
+        "search_complete": "false",
+        "counters": {},
+        "partial_or_limit_signals": [
+          "file_limit",
+          "output_truncated",
+          "search_incomplete",
+          "timeout"
+        ],
+        "signature": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "errors": []
+      },
+      "summary": {
+        "engine_ms": null,
+        "queue_ms": null,
+        "transport_ms": {
+          "min": 3009.6973,
+          "p50": 3012.7734,
+          "p95": 3074.27,
+          "max": 3074.27,
+          "mean": 3032.2469
+        },
+        "decode_ms": {
+          "min": 0.0188,
+          "p50": 0.0188,
+          "p95": 0.0192,
+          "max": 0.0192,
+          "mean": 0.018933333333333333
+        },
+        "validation_ms": {
+          "min": 0.0493,
+          "p50": 0.0502,
+          "p95": 0.0587,
+          "max": 0.0587,
+          "mean": 0.05273333333333333
+        },
+        "response_bytes": {
+          "min": 154,
+          "p50": 154,
+          "p95": 154,
+          "max": 154,
+          "mean": 154
+        },
+        "returned_files": {
+          "min": 0,
+          "p50": 0,
+          "p95": 0,
+          "max": 0,
+          "mean": 0
+        }
+      },
+      "partial_or_limit_signals": [
+        "file_limit",
+        "output_truncated",
+        "search_incomplete",
+        "timeout"
+      ],
+      "stable_results": true
+    }
+  ],
+  "timing": "wire time excludes client JSON decode and validation; both are recorded separately",
+  "cache": "existing server, explicitly warmed; first observation is not a cold-cache claim",
+  "completion": "legacy MCP and HTTP may not expose completeness; zero signals do not prove completeness",
+  "controls": "raw MCP has fixed limits; GET has no engine deadline option. Actual request is recorded; unsupported controls are not invented.",
+  "setup": [
+    {
+      "transport": "mcp",
+      "requests": [
+        {
+          "method": "initialize",
+          "transport_ms": 6.6402,
+          "response_bytes": 664,
+          "decode_ms": 0.0279
+        },
+        {
+          "method": "notifications/initialized",
+          "transport_ms": 0.2972,
+          "response_bytes": 0,
+          "decode_ms": 0.0004
+        },
+        {
+          "method": "tools/list",
+          "transport_ms": 0.3777,
+          "response_bytes": 8375,
+          "decode_ms": 0.0521
+        }
+      ]
+    }
+  ],
+  "corpus": {
+    "stats": {
+      "Repos": 1,
+      "Shards": 17,
+      "Documents": 168033,
+      "IndexBytes": 10285240,
+      "ContentBytes": 1752728867,
+      "NewLinesCount": 46918632,
+      "DefaultBranchNewLinesCount": 0,
+      "OtherBranchesNewLinesCount": 0
+    },
+    "indexes": [
+      {
+        "repo": "ue",
+        "metadata": {
+          "IndexFormatVersion": 16,
+          "IndexFeatureVersion": 12,
+          "IndexMinReaderVersion": 10,
+          "IndexTime": "2026-11-01T19:37:53.4696103-07:00",
+          "PlainASCII": false,
+          "LanguageMap": {
+            "": 6,
+            "Ant Build System": 11,
+            "Batchfile": 9,
+            "C": 3,
+            "C#": 1,
+            "C++": 2,
+            "CMake": 10,
+            "INI": 0,
+            "JSON": 7,
+            "Objective-C": 8,
+            "Python": 12,
+            "Text": 4,
+            "XML": 5
+          },
+          "ZoektVersion": "",
+          "ID": "dbjvf0bmceb7t75dm20g"
+        }
+      }
+    ]
+  },
+  "passed": true
+}

@@ -1,227 +1,236 @@
 #!/usr/bin/env python3
-"""Read-only Unreal baseline via Zoekt's existing /api/search HTTP API.
+"""Read-only Unreal interface benchmark; MCP is the default primary suite.
 
-Python 3.10+, standard library only. Does not build, index, restart, or drop caches.
-This measures native search + JSON HTTP, not the proposed MCP search interface.
+Python 3.10+, standard library. Never builds, indexes, launches or restarts a
+server. Run against your server after you deploy and finish indexing Unreal.
 """
-
 import argparse
-import hashlib
-import http.client
 import json
 import math
 import platform
-import re
 import statistics
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from http.client import HTTPException
+from concurrent.futures import ThreadPoolExecutor
 
+from search_benchmark_backends import Client, measure, request_for
 
 HEADER = r"(^|/)RenderCore/Public/RenderGraphBuilder[.]h$"
 MODULE = r"(^|/)RenderCore/.*[.](cpp|h)$"
 CALL = r"\bRegisterExternal(Texture|Buffer)\s*\("
+FILES = r"(^|/)RenderCore/.*(RenderGraphBuilder|RenderingThread)[.]h$"
 CASES = [
-    dict(id="files", query=r"file:(^|/)RenderCore/.*(RenderGraphBuilder|RenderingThread)[.]h$ type:filename",
-         path=r"/RenderCore/.*(RenderGraphBuilder|RenderingThread)[.]h$", min_files=2),
-    dict(id="literal_scoped", query=f"file:{HEADER} content:RegisterExternalTexture", path=HEADER),
-    dict(id="alternation_scoped", query=f"file:{HEADER} content:(Register|Queue)External(Texture|Buffer)", path=HEADER),
-    dict(id="calls_scoped", query=f"file:{MODULE} content:{CALL}", path=MODULE),
-    dict(id="calls_unscoped", query=f"content:{CALL}", allow_display_limit=True),
-    dict(id="multiline", query=f"file:{HEADER} content:(?s:RegisterExternalTexture\\(.{{0,250}}ERDGTextureFlags)", path=HEADER),
+    dict(id="files", query=f"file:{FILES} type:filename", pattern=FILES, mode="files",
+         path=FILES, min_files=2),
+    dict(id="literal_scoped", query=f"file:{HEADER} content:RegisterExternalTexture",
+         pattern="RegisterExternalTexture", filter=HEADER, path=HEADER, evidence="RegisterExternalTexture"),
+    dict(id="alternation_scoped", query=f"file:{HEADER} content:(Register|Queue)External(Texture|Buffer)",
+         pattern="(Register|Queue)External(Texture|Buffer)", filter=HEADER, path=HEADER, evidence="RegisterExternal"),
+    dict(id="calls_scoped", query=f"file:{MODULE} content:{CALL}",
+         pattern=CALL, filter=MODULE, path=MODULE, evidence="RegisterExternal"),
+    dict(id="calls_unscoped", query=f"content:{CALL}", pattern=CALL, allow_display_limit=True, evidence="RegisterExternal"),
+    dict(id="multiline", query=f"file:{HEADER} content:(?s:RegisterExternalTexture\\(.{{0,250}}ERDGTextureFlags)",
+         pattern=r"(?s:RegisterExternalTexture\(.{0,250}ERDGTextureFlags)", filter=HEADER, path=HEADER, evidence="RegisterExternalTexture|ERDGTextureFlags"),
+    # File-level AND is intentionally a native query, including in the MCP suite.
     dict(id="file_and", query=f"file:{HEADER} content:RegisterExternalTexture content:ERDGTextureFlags", path=HEADER),
-    dict(id="case_insensitive", query=f"file:{HEADER.lower()} content:registerexternal(texture|buffer)", path=HEADER),
+    dict(id="case_insensitive", query=f"file:{HEADER.lower()} content:registerexternal(texture|buffer)",
+         pattern="registerexternal(texture|buffer)", filter=HEADER.lower(), path=HEADER, evidence="RegisterExternal"),
     dict(id="wrong_path_zero", query=r"file:(^|/)RenderCore/Public/RenderingThread[.]h$ content:RegisterExternal(Texture|Buffer)",
-         max_files=0, min_files=0),
-    dict(id="weak_branch", query=r"content:(RegisterExternalTexture|xx.+)", stress=True),
+         pattern="RegisterExternal(Texture|Buffer)", filter=r"(^|/)RenderCore/Public/RenderingThread[.]h$", max_files=0, min_files=0),
+    dict(id="weak_branch", query=r"content:(RegisterExternalTexture|xx.+)", pattern=r"(RegisterExternalTexture|xx.+)", stress=True, min_files=0),
 ]
-COUNTERS = (
-    "FileCount", "MatchCount", "FilesConsidered", "FilesLoaded", "FilesSkipped",
-    "ShardsScanned", "ShardsSkipped", "Crashes", "ContentBytesLoaded",
-    "IndexBytesLoaded", "RegexpsConsidered", "NgramLookups", "NgramMatches",
-)
-
-
-class Client:
-    def __init__(self, url, timeout):
-        endpoint = urlsplit(url)
-        if endpoint.scheme not in ("http", "https") or not endpoint.hostname:
-            raise ValueError("--url must be an http(s) server URL")
-        if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
-            raise ValueError("--url must not contain credentials, query, or fragment")
-        cls = http.client.HTTPSConnection if endpoint.scheme == "https" else http.client.HTTPConnection
-        self.connection = cls(endpoint.hostname, endpoint.port, timeout=timeout)
-        self.base_path = endpoint.path.rstrip("/")
-
-    def post(self, path, body):
-        payload = json.dumps(body).encode("utf-8")
-        start = time.perf_counter_ns()
-        self.connection.request("POST", self.base_path + path, payload, {"Content-Type": "application/json"})
-        response = self.connection.getresponse()
-        raw = response.read()
-        elapsed_ms = (time.perf_counter_ns() - start) / 1e6
-        if response.status != 200:
-            raise RuntimeError(f"HTTP {response.status}: {raw[:300]!r}")
-        document = json.loads(raw)
-        if document.get("Error"):
-            raise RuntimeError(document["Error"])
-        return document, elapsed_ms, len(raw)
-
-    def close(self):
-        self.connection.close()
+TRANSPORTS = ("mcp", "mcp-raw", "mcp-legacy", "http-post", "http-get")
 
 
 def distribution(values):
+    values = [v for v in values if v is not None]
+    if not values:
+        return None
     ordered = sorted(values)
-    return {
-        "min": min(values), "p50": statistics.median(values),
-        "p95": ordered[math.ceil(len(ordered) * 0.95) - 1],
-        "max": max(values), "mean": statistics.mean(values),
-    }
+    return dict(min=min(values), p50=statistics.median(values),
+                p95=ordered[math.ceil(len(values) * .95) - 1],
+                max=max(values), mean=statistics.mean(values))
 
 
-def measure(client, repo, case, opts):
-    # Quoting escapes the native query string's quote/backslash layer as well.
-    query = "r:" + json.dumps("^" + re.escape(repo) + "$") + " case:no " + case["query"]
-    document, http_ms, size = client.post("/api/search", {"Q": query, "Opts": opts})
-    result = document["Result"]
-    files = result.get("Files") or []
-    errors = []
-    if len(files) < case.get("min_files", 1):
-        errors.append("expected positive file matches are missing")
-    if len(files) > case.get("max_files", opts["MaxDocDisplayCount"]):
-        errors.append("unexpected file matches")
-    signatures = []
-    for file in files:
-        if file["Repository"] != repo:
-            errors.append("repository filter leaked")
-        # Legacy JSON returns native absolute paths; normalize only for assertions.
-        if "path" in case and not re.search(case["path"], file["FileName"].replace("\\", "/"), re.IGNORECASE):
-            errors.append("path filter leaked")
-        matches = file.get("LineMatches") or []
-        signatures.append((file["Repository"], file["FileName"], sorted(
-            (m["LineNumber"], m["Line"]) for m in matches)))
-    signature = hashlib.sha256(json.dumps(sorted(signatures)).encode()).hexdigest()
-    signals = [key for key in ("FilesSkipped", "ShardsSkipped", "Crashes") if result.get(key, 0)]
-    if result.get("FileCount", 0) > len(files):
-        signals.append("files_omitted_from_response")
-    if len(files) >= opts["MaxDocDisplayCount"]:
-        signals.append("at_file_display_limit")
-    if result["Duration"] >= opts["MaxWallTime"] * 0.95:
-        signals.append("near_deadline")
-    if result.get("Crashes", 0):
-        errors.append("shard crash or index not ready")
-    return {
-        "engine_ms": result["Duration"] / 1e6,
-        "queue_ms": result.get("Wait", 0) / 1e6,
-        "http_ms": http_ms, "response_bytes": size, "returned_files": len(files),
-        "counters": {key: result.get(key, 0) for key in COUNTERS},
-        "partial_or_limit_signals": signals, "signature": signature,
-        "errors": sorted(set(errors)),
-    }
+def compare_baseline(report, baseline):
+    """Compare like-for-like requests. Missing or changed baselines are explicit."""
+    previous = {(entry.get("transport", "http-post"), entry["case"]["id"]): entry
+                for entry in baseline.get("cases", [])}
+    comparisons = []
+    for entry in report["cases"]:
+        key = entry["transport"], entry["case"]["id"]
+        old = previous.get(key)
+        row = dict(transport=key[0], case=key[1], status="not_comparable")
+        same_config = baseline.get("profile") == report.get("profile") and baseline.get("concurrency", 1) == report.get("concurrency", 1)
+        if old and "summary" in entry and "summary" in old and old.get("request") == entry.get("request") and same_config:
+            old_time = old["summary"].get("transport_ms")
+            current_time = entry["summary"].get("transport_ms")
+            if old_time and current_time:
+                delta = current_time["p95"] - old_time["p95"]
+                row.update(status="regression_candidate" if delta > 5 and current_time["p95"] > old_time["p95"] * 1.2 else "within_threshold",
+                           delta_p95_ms=delta)
+                if set(entry.get("partial_or_limit_signals", [])) != set(old.get("partial_or_limit_signals", [])):
+                    row["status"] = "coverage_changed"
+                if entry["samples"][-1]["signature"] != old["samples"][-1]["signature"]:
+                    row["status"] = "results_changed"
+        comparisons.append(row)
+    return comparisons
+
+
+def run_case(client, args, transport, case, report):
+    options = dict(MaxWallTime=args.timeout_ms * 1000000, MaxDocDisplayCount=args.max_files,
+                   MaxMatchDisplayCount=4000, NumContextLines=args.context_lines,
+                   ShardMaxMatchCount=100000, TotalMaxMatchCount=1000000, snippets=args.max_snippets_per_file)
+    if case.get("stress"):
+        options.update(MaxDocDisplayCount=20, MaxMatchDisplayCount=200, NumContextLines=0)
+    entry = dict(transport=transport, case=case, options=options,
+                 request=list(request_for(transport, args.repo, case, args.profile, options)), samples=[])
+    report["cases"].append(entry)
+    first = measure(client, transport, args.repo, case, args.profile, options)
+    entry["first_observation"] = first
+    if first["errors"]:
+        raise RuntimeError(str(first["errors"]))
+    for _ in range(args.warmup):
+        sample = measure(client, transport, args.repo, case, args.profile, options)
+        if sample["errors"]:
+            raise RuntimeError(str(sample["errors"]))
+    def samples(connection, count):
+        result = []
+        for _ in range(count):
+            sample = measure(connection, transport, args.repo, case, args.profile, options)
+            result.append(sample)
+            if sample["errors"]:
+                raise RuntimeError(str(sample["errors"]))
+        return result
+
+    if args.concurrency == 1:
+        entry["samples"] = samples(client, args.runs)
+    else:
+        connections = [client]
+        try:
+            for _ in range(args.concurrency - 1):
+                connection = Client(args.url, max(30, args.timeout_ms / 1000 + 5))
+                connections.append(connection)
+                entry.setdefault("additional_client_setup", []).append(connection.initialize(transport))
+                samples(connection, args.warmup)
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+                jobs = [executor.submit(samples, connection, args.runs // args.concurrency + (i < args.runs % args.concurrency))
+                        for i, connection in enumerate(connections)]
+                for job in jobs:
+                    entry["samples"].extend(job.result())
+        finally:
+            for connection in connections[1:]:
+                connection.close()
+    entry["summary"] = {key: distribution([s[key] for s in entry["samples"]])
+                        for key in ("engine_ms", "queue_ms", "transport_ms", "decode_ms", "validation_ms", "response_bytes", "returned_files")}
+    entry["partial_or_limit_signals"] = sorted({f for s in entry["samples"] for f in s["partial_or_limit_signals"]})
+    entry["stable_results"] = len({s["signature"] for s in entry["samples"]}) == 1
+    if not case.get("stress") and not entry["stable_results"]:
+        raise RuntimeError("unstable evidence; cannot treat this as a passing baseline")
+    latency = entry["summary"]["transport_ms"]
+    engine = entry["summary"]["engine_ms"]
+    engine_text = f"{engine['p95']:.2f}" if engine else "unavailable"
+    print(f"{transport:10} {case['id']:22} wire p50/p95={latency['p50']:.2f}/{latency['p95']:.2f} ms"
+          f" engine p95={engine_text} files={entry['samples'][-1]['returned_files']}"
+          f" signals={entry['partial_or_limit_signals']}", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="http://127.0.0.1:6070")
+    parser.add_argument("--url", default="http://127.0.0.1:6070", help="Existing server base URL")
     parser.add_argument("--repo", default="ue")
+    parser.add_argument("--transport", choices=(*TRANSPORTS, "all"), default="mcp")
+    parser.add_argument("--profile", choices=("defaults", "aligned"), default="defaults",
+                        help="defaults sends each interface's normal defaults; aligned sends supported explicit controls")
     parser.add_argument("--runs", type=int, default=30)
     parser.add_argument("--warmup", type=int, default=3)
+    parser.add_argument("--concurrency", type=int, choices=(1, 4), default=1)
     parser.add_argument("--timeout-ms", type=int, default=3000)
-    parser.add_argument("--case", action="append", help="Case ID; repeat to select several")
+    parser.add_argument("--max-files", type=int, default=200)
+    parser.add_argument("--context-lines", type=int, default=5)
+    parser.add_argument("--max-snippets-per-file", type=int, default=20)
+    parser.add_argument("--case", action="append")
     parser.add_argument("--include-stress", action="store_true")
+    parser.add_argument("--baseline", type=Path)
     parser.add_argument("--label", default="unlabelled-server")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.runs < 1 or args.warmup < 0 or not 100 <= args.timeout_ms <= 10000:
-        parser.error("runs >= 1, warmup >= 0, timeout-ms in 100..10000 required")
-    cases = [case for case in CASES if (args.include_stress or not case.get("stress"))
-             and (not args.case or case["id"] in args.case)]
-    if not cases or (args.case and set(args.case) - {case["id"] for case in cases}):
+    if args.runs < args.concurrency or args.warmup < 0 or not 100 <= args.timeout_ms <= 10000:
+        parser.error("runs >= concurrency, warmup >= 0, timeout-ms in 100..10000 required")
+    if not 1 <= args.max_files <= 20000 or not 0 <= args.context_lines <= 50 or not 1 <= args.max_snippets_per_file <= 200:
+        parser.error("invalid result/context limits")
+    transports = ["mcp", "mcp-raw", "http-post", "http-get"] if args.transport == "all" else [args.transport]
+    if args.profile == "aligned" and "http-get" in transports and args.context_lines > 10:
+        parser.error("HTTP GET supports ctx <= 10; run MCP/POST separately for larger contexts")
+    if args.profile == "defaults" and (args.timeout_ms, args.max_files, args.context_lines, args.max_snippets_per_file) != (3000, 200, 5, 20):
+        parser.error("explicit result/deadline overrides require --profile aligned")
+    cases = [c for c in CASES if (args.include_stress or not c.get("stress")) and (not args.case or c["id"] in args.case)]
+    if not cases or (args.case and set(args.case) - {c["id"] for c in cases}):
         parser.error("unknown case or stress case without --include-stress")
-    opts = dict(MaxWallTime=args.timeout_ms * 1000000, MaxDocDisplayCount=200,
-                MaxMatchDisplayCount=4000, NumContextLines=5,
-                ShardMaxMatchCount=100000, TotalMaxMatchCount=1000000)
-    # Explicit engine limits bypass /api/search's result-count heuristic and
-    # match current MCP engine defaults. 4000 is GLOBAL ranges, not 20 snippets/file.
-    report = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(), "label": args.label,
-        "url": args.url, "repo": args.repo, "platform": platform.platform(),
-        "processor": platform.processor(), "python": platform.python_version(),
-        "transport": "serial HTTP JSON with connection reuse; excludes client JSON decode",
-        "cache": "uncontrolled existing server; first sample is NOT a cold-cache claim",
-        "completion": "legacy API has no definitive completion flag; zero signals do not prove completeness",
-        "warmup": args.warmup, "runs": args.runs, "options": opts, "cases": [],
-    }
+    if args.baseline and args.baseline.resolve() == args.output.resolve():
+        parser.error("baseline and output must be different files")
+    report = dict(timestamp_utc=datetime.now(timezone.utc).isoformat(), label=args.label, url=args.url, repo=args.repo,
+                  platform=platform.platform(), processor=platform.processor(), python=platform.python_version(),
+                  profile=args.profile, runs=args.runs, warmup=args.warmup, concurrency=args.concurrency, cases=[],
+                  timing="wire time excludes client JSON decode and validation; both are recorded separately",
+                  cache="existing server, explicitly warmed; first observation is not a cold-cache claim",
+                  completion="legacy MCP and HTTP may not expose completeness; zero signals do not prove completeness",
+                  controls="raw MCP has fixed limits; GET has no engine deadline option. Actual request is recorded; unsupported controls are not invented.")
     failed = False
-    client = Client(args.url, args.timeout_ms / 1000 + 5)
     try:
-        query = "r:" + json.dumps("^" + re.escape(args.repo) + "$")
-        listing, _, _ = client.post("/api/list", {"Q": query})
-        listing = listing["List"]
-        entries = listing.get("Repos") or []
-        if listing.get("Crashes") or not entries:
-            raise RuntimeError("repository missing or index not ready")
-        report["corpus"] = {
-            "stats": listing["Stats"],
-            "indexes": [{"repo": entry["Repository"]["Name"], "metadata": entry["IndexMetadata"]}
-                        for entry in entries],
-        }
-        for case in cases:
-            entry = {"case": case, "samples": []}
-            report["cases"].append(entry)
-            case_opts = dict(opts)
-            if case.get("stress"):
-                case_opts.update(MaxDocDisplayCount=20, MaxMatchDisplayCount=200, NumContextLines=0)
-            entry["options"] = case_opts
+        for transport in transports:
+            # One interface at a time, never parallel benchmark suites.
+            client = Client(args.url, max(30, args.timeout_ms / 1000 + 5))
             try:
-                entry["first_observation"] = measure(client, args.repo, case, case_opts)
-                if entry["first_observation"]["errors"]:
-                    raise RuntimeError(str(entry["first_observation"]["errors"]))
-                for _ in range(args.warmup):
-                    warmup = measure(client, args.repo, case, case_opts)
-                    if warmup["errors"]:
-                        raise RuntimeError(str(warmup["errors"]))
-                for _ in range(args.runs):
-                    sample = measure(client, args.repo, case, case_opts)
-                    entry["samples"].append(sample)
-                    if sample["errors"]:
-                        raise RuntimeError(str(sample["errors"]))
-                samples = entry["samples"]
-                entry["summary"] = {key: distribution([s[key] for s in samples])
-                                    for key in ("engine_ms", "queue_ms", "http_ms", "response_bytes", "returned_files")}
-                entry["partial_or_limit_signals"] = sorted({flag for s in samples for flag in s["partial_or_limit_signals"]})
-                entry["stable_results"] = len({s["signature"] for s in samples}) == 1
-                unexpected_signals = set(entry["partial_or_limit_signals"])
-                if case.get("allow_display_limit"):
-                    unexpected_signals -= {"files_omitted_from_response", "at_file_display_limit"}
-                if not case.get("stress") and (unexpected_signals or not entry["stable_results"]):
-                    raise RuntimeError("partial/limited or unstable result; not a passing normal baseline")
-                engine = entry["summary"]["engine_ms"]
-                http_summary = entry["summary"]["http_ms"]
-                print(f"{case['id']:22} engine p50/p95={engine['p50']:.2f}/{engine['p95']:.2f} ms"
-                      f"  HTTP p95={http_summary['p95']:.2f} ms  files={samples[-1]['returned_files']}"
-                      f"  signals={entry['partial_or_limit_signals']}", flush=True)
-            except (OSError, ValueError, KeyError, RuntimeError, http.client.HTTPException) as error:
-                entry["error"] = str(error)
-                print(f"{case['id']}: FAILED: {error}", file=sys.stderr, flush=True)
+                report.setdefault("setup", []).append({"transport": transport, "requests": client.initialize(transport)})
+                if "corpus" not in report:
+                    try:
+                        from search_benchmark_backends import native_query
+                        query = native_query(args.repo, {"query": ""}).split(" case:no", 1)[0]
+                        listing, _, _, _ = client.request("POST", "/api/list", {"Q": query})
+                        listing = listing["List"]
+                        report["corpus"] = {"stats": listing["Stats"], "indexes": [
+                            {"repo": item["Repository"]["Name"], "metadata": item["IndexMetadata"]}
+                            for item in listing.get("Repos") or []]}
+                    except (OSError, ValueError, KeyError, RuntimeError, HTTPException) as error:
+                        report["corpus"] = {"unavailable": str(error)}
+                        # Metadata is optional on MCP-only servers. Reconnect
+                        # after an error; none of this is part of search timing.
+                        client.close()
+                        client = Client(args.url, max(30, args.timeout_ms / 1000 + 5))
+                        report["setup"].append({"transport": transport, "reconnect": True, "requests": client.initialize(transport)})
+                for case in cases:
+                    try:
+                        run_case(client, args, transport, case, report)
+                    except (OSError, ValueError, KeyError, RuntimeError, TypeError, HTTPException) as error:
+                        failed = True
+                        report["cases"][-1]["error"] = str(error)
+                        print(f"{transport}/{case['id']}: FAILED: {error}", file=sys.stderr, flush=True)
+                        # Do not reuse a potentially interrupted connection/session.
+                        break
+            except (OSError, ValueError, KeyError, RuntimeError, TypeError, HTTPException) as error:
                 failed = True
+                report.setdefault("errors", []).append(f"{transport}: {error}")
+                print(f"{transport}: FAILED: {error}", file=sys.stderr, flush=True)
+            finally:
                 client.close()
-                client = Client(args.url, args.timeout_ms / 1000 + 5)
-    except (OSError, ValueError, KeyError, RuntimeError, http.client.HTTPException) as error:
+        if args.baseline:
+            baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+            report["comparisons"] = compare_baseline(report, baseline)
+            if any(r["status"] != "within_threshold" for r in report["comparisons"]):
+                failed = True
+    except (OSError, ValueError) as error:
         report["error"] = str(error)
-        print(f"FAILED: {error}", file=sys.stderr, flush=True)
         failed = True
     finally:
-        client.close()
-        report["passed"] = not failed and len(report["cases"]) == len(cases) and all(
-            "summary" in entry for entry in report["cases"])
+        expected = len(cases) * len(transports)
+        report["passed"] = not failed and len(report["cases"]) == expected and all("summary" in c for c in report["cases"])
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(f"Report: {args.output.resolve()}", flush=True)
-    return 1 if failed else 0
+    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":

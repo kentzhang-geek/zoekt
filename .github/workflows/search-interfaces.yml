@@ -1,0 +1,26 @@
+name: Search interface contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Real-index interface and path contracts
+        run: go test ./cmd/zoekt-webserver ./web ./internal/json ./index ./search ./gitindex -run '^(TestMCP|TestHTTP|TestAgent|TestClientServer|TestProgressNotEncoded)' -count=1
+      - name: Offline benchmark adapter contracts
+        run: python -m unittest discover -s scripts -p test_benchmark_search.py

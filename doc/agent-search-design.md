@@ -1,6 +1,6 @@
 # 面向 Agent 的 Zoekt 搜索接口设计（简化修订版）
 
-状态：接口设计提案，尚未实现。当前运行的 MCP 为旧版本，只用于验证已有查询能力。已增加独立的只读性能脚本，并在已索引的 Unreal 上取得旧 HTTP 服务基线；没有重启服务或重建索引。第 10 节补充新旧 MCP 及 HTTP 的正确性测试计划，第 11 节规定以真实 MCP 调用为主要 Unreal 性能验收，HTTP 单独回归。新增测试与脚本接口适配均留待后续实现。
+状态：接口、真实索引正确性测试、接口 Go benchmark、Windows/Linux CI 和多接口性能脚本已实现。当前运行的服务仍是旧版本；本轮没有启动或重启应用，没有重新索引 Unreal。新接口在 Unreal 上的性能验收等用户部署和索引完成后执行，第 11.3 节数字仍然只是旧 HTTP 基线。实现位置、验证结果和运行命令见第 12 节。
 
 ## 1. 评审结论
 
@@ -12,7 +12,7 @@
 | 常用语义 | `files` 搜文件路径并返回文件列表；`snippets` 搜内容并返回文件、行号、命中及上下文 |
 | 正则 | 常用接口直接接收 regex；为简化接口，不再提供 pattern_type，字面特殊字符用正则转义 |
 | 大小写 | 默认不敏感，可显式选择敏感；同时作用于 pattern 和 path_regex |
-| 上下文 | 建议默认前后各 5 行，范围 0–50；5 是本次建议值，可依据样例调整 |
+| 上下文 | 默认前后各 5 行，范围 0–50 |
 | 文件数 | 默认 200，上限 20000 |
 | 每文件片段数 | 默认 20，上限 200；按合并后片段计数 |
 | 输出字节参数 | 删除 max_output_bytes，不要求 agent 管理字节预算 |
@@ -42,6 +42,8 @@
 | `timeout_ms` | 否 | 默认 3000，范围 100–10000；服务端排队、搜索和结果准备共享期限 |
 
 常见调用只需要 pattern，通常加上 repos、path_regex；其余参数按需调整。repos 是仓库标识选择，按返回的精确名称匹配，不受 case 影响。
+
+case 设置两个正则的初始大小写模式；表达式内显式的 `(?i:...)`、`(?-i:...)` 仍保留标准正则语义。例如默认不敏感时，`(?-i:Renderer)` 仍要求该部分大小写一致。
 
 files 模式显式传入 context_lines 或 max_snippets_per_file 时返回参数错误，避免 agent 误以为文件搜索也生成内容片段。未知参数也报错，不静默忽略过滤条件。
 
@@ -116,7 +118,7 @@ pattern 与 path_regex 都作为完整正则解析。空格是表达式中的空
 
 ## 4. 上下文与边界
 
-建议默认值从 3 提高到 5，单行命中通常最多 11 行；更多上下文按需显式提高。
+默认值为 5，单行命中通常最多 11 行；更多上下文按需显式提高。
 
 | 命中条件 | context_lines = 5 的结果 |
 |---|---|
@@ -129,7 +131,7 @@ pattern 与 path_regex 都作为完整正则解析。空格是表达式中的空
 
 边界处不向另一侧补足固定行数。首行命中不会为了凑满 11 行而额外返回第 7–11 行。
 
-当前 [contentprovider.go](../index/contentprovider.go) 的 lineStart 将越界位置夹到文件起止位置，getLines 据此切片，已经具备首尾裁剪基础；末行没有换行符也能纳入范围。新接口仍需对行号、空文件、短文件和边界回归验证。
+[contentprovider.go](../index/contentprovider.go) 的 lineStart 将越界位置夹到文件起止位置，getLines 据此切片；末行没有换行符也能纳入范围。新增真实索引测试验证首尾裁剪、空文件的零宽匹配、短文件、CRLF 和无末尾换行。
 
 多个命中窗口重叠或紧邻时合并，代码输出一次；context_lines 为 0 时只返回命中涉及的行。同一行多个命中不重复输出。
 
@@ -152,7 +154,9 @@ max_snippets_per_file 限制合并后的片段数。一个合并片段可能很�
 
 ### 5.2 不公开字节参数，保留可见的部署边界
 
-删除 max_output_bytes。建议实现保留服务端部署级消息/内存边界，适配实际客户端和传输能力。具体阈值通过部署验证决定，不沿用上一版很小的 24000 字节默认值。
+不公开 max_output_bytes。服务端 `-mcp_max_response_bytes` 默认 16 MiB，可配置范围 1024–268435456 字节，用于新 search 的编码响应预算。格式化时按 JSON 转义后的字节计数，预留信封及状态头空间；原生 search_raw 和 HTTP 不套用这个新限制。
+
+引擎同时使用该值 4 倍的累计结果保留预算，默认约 64 MiB，跨并行分片共享，提前停止继续保留结果。它估算源码片段、命中范围和容器开销；排序丢弃的结果不返还预算，因此较保守。它不是进程堆内存的硬上限，单文件解码、正则匹配、合并及 JSON 编码仍有临时分配。
 
 实际触及边界时，应在完整文件或片段边界停止，并返回 output_truncated 和原因。不能静默截断 JSON、UTF-8 或结果尾部，也不能先构造数 GB 再裁剪。部署限制影响结果时，对调用者可见。
 
@@ -178,10 +182,11 @@ files 返回仓库、规范化相对路径，可解析时附带明确标注的�
 snippets 返回文件、片段起止行、真实命中行和原始代码。行号从 1 开始，起止端点均包含在内。采用紧凑的逐文件展示，例如：
 
 ```text
-search_complete=true output_truncated=false
+search_complete=true output_truncated=false partial_reasons=
 
-repo=zoekt path=query/parse.go
-95  | ...
+repo="zoekt" path="query/parse.go"
+lines=95-105
+95 | ...
 100>| func Parse(...) ...
 101 | ...
 ```
@@ -298,11 +303,11 @@ Check completion/truncation flags before drawing absence conclusions.
 | 超时或响应边界 | 完成/裁剪状态真实，保留可用结果 |
 | search_raw | 原解析行为与已支持能力保留 |
 
-验证使用离线临时索引测试行为，并在同一语料上测量扫描、加载、聚合、编码及响应体积。默认值与高上限分开比较。接口实现与新 MCP 性能验收仍待完成，旧原生接口的自动化脚本和 Unreal 基线已完成。
+验证使用离线内存索引测试行为，并在同一语料上测量扫描、加载、聚合、编码及响应体积。默认值与高上限分开比较。接口实现和 fixture 验证已完成，新 MCP 的 Unreal 性能验收尚待部署；已有旧 HTTP 基线保留作历史参考。
 
-### 10.1 当前接口测试覆盖
+### 10.1 实现前的测试覆盖审计
 
-以下根据当前源码核对，不把“存在测试”表述为本轮已执行通过。
+以下保留实现前的覆盖审计，用来说明新增测试的原因；当前新增覆盖与执行结果见第 12 节。
 
 | 接口 | 已有正确性测试 | 现有覆盖的不足 | 已有接口性能测试 |
 |---|---|---|---|
@@ -314,9 +319,9 @@ Check completion/truncation flags before drawing absence conclusions.
 
 这里的 HTTP 接口在项目中称为 [JSON HTTP API](json-api.md)，无需按是否严格符合 REST 风格区分测试责任。`POST /api/search` 的 JSON API 与 `GET /search?format=json` 的网页 JSON 输出是两个不同契约，MCP 也是独立契约，不能只测它们共用的搜索引擎。
 
-### 10.2 待实现的接口正确性测试
+### 10.2 接口正确性测试要求
 
-保留已有测试并补充以下内容。真实匹配测试使用相同的临时索引 fixture，包含两个仓库、同名文件、相似目录、命中/不命中内容、首尾行、空文件、短文件、Unicode、CRLF 和无末尾换行。预期结果手工定义；不能只比较几个接口相互一致，否则共同的错误也可能通过。超时和故障注入可以使用受控搜索器，正常匹配必须经过真实索引。
+保留已有测试并补充以下内容。真实匹配测试使用相同的内存序列化索引 fixture，包含两个仓库、同名文件、相似目录、命中/不命中内容、首尾行、空文件、短文件、Unicode、CRLF 和无末尾换行。预期结果手工定义；不能只比较几个接口相互一致，否则共同的错误也可能通过。超时和故障注入可以使用受控搜索器，正常匹配必须经过真实索引。
 
 | 测试组 | 必须验证的行为 |
 |---|---|
@@ -335,7 +340,7 @@ search_raw 的兼容性基线来自旧 MCP search，相同输入除工具名外�
 
 ### 10.3 HTTP / Vim 插件兼容性与执行方式
 
-当前上下文中尚未确定 Vim 插件使用 POST JSON 还是 GET JSON；两条搜索入口都列入必做回归，不因此阻塞设计。实现时读取插件代码或真实请求样例，增加与插件实际请求、解析及文件跳转方式一致的用例。
+当前上下文中尚未提供 Vim 插件代码或真实请求样例，因此同时覆盖 POST JSON 和 GET JSON 的字段、编码、行号和既有本地路径契约。插件内部的解析、UI 刷新及文件跳转未做端到端验证，不能把接口测试等同于插件实测。
 
 HTTP 的兼容性要求：
 
@@ -350,13 +355,13 @@ HTTP 的兼容性要求：
 go test ./cmd/zoekt-webserver ./internal/json ./web -count=1
 ```
 
-Unreal 性能回归在有该索引的固定测试机上执行，不把 Unreal 源码放入普通 CI。此次仅补设计，尚未编写或执行以上新增测试。
+Unreal 性能回归在有该索引的固定测试机上执行，不把 Unreal 源码放入普通 CI。新增测试已实现并执行，具体命令与 Windows 环境限制见第 12 节。
 
 ## 11. Unreal 实测与自动性能回归
 
-### 11.1 现在验证什么，实现后再验证什么
+### 11.1 实现前基线与部署后验证
 
-现在就验证已有引擎的正则、文件过滤和性能，作为实现前基线。新参数的 AST 构造、默认大小写、每文件片段数、上下文合并、完成状态及 MCP 编码开销，需要新接口实现并部署后再次验证。旧 MCP 成功不代表新接口已经通过验收。
+已有引擎的正则、文件过滤和性能已用于实现前基线。新参数的 AST 构造、默认大小写、每文件片段数、上下文合并和完成状态已有 fixture 测试；Unreal 覆盖和真实 MCP 编码、传输开销需要部署后再次验证。旧 MCP 成功不代表新接口已经通过大库验收。
 
 Unreal 性能测试以真实 MCP 接口为主：新 search 的 files/snippets 和 search_raw 都必须通过 `tools/call` 跑完对应用例。HTTP 性能作为独立的 Vim 插件兼容性回归和诊断对照；只有 HTTP 或引擎达标，不能判定 MCP 达标。当前已有数字来自旧 HTTP 接口，不是 MCP 性能基线。
 
@@ -387,7 +392,7 @@ go test ./index -run '^$' -bench '^Benchmark(MinFrequencyNgramOffsets|Compressed
 go test ./search -run '^$' -bench '^BenchmarkShardedSearch$' -benchmem -benchtime=1s -count=3
 ```
 
-现有 [CI](../.github/workflows/ci.yml) 执行 Go 测试，未发现 Unreal 或 MCP 端到端性能回归任务。本轮没有运行上述 Go benchmark，也没有据此推导 Unreal 耗时。
+原有 [CI](../.github/workflows/ci.yml) 执行 Go 测试。本轮另外增加 [接口契约 CI](../.github/workflows/search-interfaces.yml)，不在 CI 下载或索引 Unreal。上述已有引擎 benchmark 未在本轮重跑；新增 MCP/HTTP fixture benchmark 与 Unreal 脚本分别见第 12 节和下文。
 
 ### 11.3 当前 Unreal 基线
 
@@ -427,32 +432,50 @@ r:^ue$ case:no file:(^|/)RenderCore/Public/RenderGraphBuilder[.]h$ content:(?s:R
 [scripts/benchmark_search.py](../scripts/benchmark_search.py) 使用 Python 3.10+ 标准库，只读访问已经运行的服务。默认包含 9 个正常用例；较重的短词分支必须显式启用。它不构建、不索引、不重启、不修改缓存。
 
 ```powershell
-# 当前服务或以后重新 build/index 后都可运行；若仓库名变化，修改 --repo。
-python scripts/benchmark_search.py --repo ue --runs 30 --warmup 3 --label after-build --output benchmark-after.json
+# 新服务部署和 Unreal 索引完成后运行，默认使用新 MCP。
+python scripts/benchmark_search.py --repo ue --runs 100 --warmup 3 --label after-build --output benchmark-mcp.json
+
+# 依次运行 MCP、新名 raw、HTTP POST、HTTP GET；不会同时跑不同接口。
+python scripts/benchmark_search.py --repo ue --transport all --runs 100 --output benchmark-all.json
+
+# 比较同机、同语料、同参数基线；报告结果/覆盖变化及 p95 回归候选。
+python scripts/benchmark_search.py --repo ue --runs 100 --baseline benchmark-mcp.json --output benchmark-mcp-next.json
+
+# 明确扩大结果上限；其他默认值不能在 defaults 配置中被悄悄覆盖。
+python scripts/benchmark_search.py --repo ue --profile aligned --max-files 2000 --max-snippets-per-file 200 --runs 100 --output benchmark-large.json
+
+# 并发 4 使用四条独立连接，预热及初始化不计入搜索样本。
+python scripts/benchmark_search.py --repo ue --concurrency 4 --runs 100 --output benchmark-concurrency4.json
+
+# 若要单独对旧服务建立 MCP 基线，必须显式指定 legacy。
+python scripts/benchmark_search.py --repo ue --transport mcp-legacy --runs 100 --output benchmark-legacy.json
 
 # 独立的压力用例；避免混进正常查询的平均值。
 python scripts/benchmark_search.py --repo ue --include-stress --case weak_branch --runs 3 --warmup 0 --timeout-ms 3000 --output benchmark-stress.json
 ```
 
-默认按 200 文件、全局 4000 个命中范围、前后各 5 行测试。4000 只是旧引擎显示参数，并不实现“每文件 20 个合并片段”。明确设置原有引擎扫描上限，绕开 JSON API 基于结果数的自动限额估算，避免不同接口的隐藏默认值导致不公平比较。报告保留全部选项。
+`--profile defaults` 使用各接口自身默认值；`aligned` 显式传递各接口支持的控制项。新 search 对应 200 文件、每文件 20 合并片段和前后各 5 行；POST 对照使用全局 4000 个命中范围，两者不是相同限制。旧 raw 仍有固定上限，GET 不支持引擎期限参数，报告保留实际请求及这些差异，不能宣称完全等价。GET ctx 上限为 10；更大上下文单独测 MCP 或 POST。
+
+`--transport mcp` 中仅文件级 AND 用例调用 search_raw，其余用例调用新 search；`mcp-raw` 全部调用 search_raw。新 schema 缺失时明确失败，不会退回旧工具或 HTTP。`all` 不含 `mcp-legacy`，旧服务需要单独测试。`--url` 默认 `http://127.0.0.1:6070`，仓库名默认 `ue`，均可修改。
 
 脚本检查结果确实存在/不存在、返回仓库、文件过滤和重复运行的结果稳定性；保存实际查询、耗时、响应字节数、加载量及已有的部分结果信号。一般用例出现意外裁剪、扫描跳过或崩溃会失败；全库调用用例允许已知的显示裁剪，压力用例允许部分结果，但均明确记录。旧 API 缺少可靠的整体完成标记，没有这些信号也不保证完整，尤其不能把超时后的零结果当成负向测试成功。
 
 性能口径：
 
 - `engine_ms` 来自 `Stats.Duration`，依据本地实现，包含搜索和聚合，不包含排队；`queue_ms` 单独记录。运行中的旧二进制精确源码版本未知，数值以它返回的字段为准。
-- `http_ms` 从发送请求到收完响应，包含 HTTP、服务端处理/编码和传输；不含客户端 JSON 解析、agent 调度、模型阅读，也不是 MCP 调用耗时。
+- 新报告的 `transport_ms` 从发送真实 MCP/HTTP 请求到收完响应，包含服务端处理、编码和传输；`decode_ms` 与 `validation_ms` 单列。旧报告的 `http_ms` 只代表旧 HTTP 请求，不能改标签当作新 MCP 数据。
+- MCP 初始化、通知和 tools/list 耗时放在独立 setup 字段；未暴露 Stats 的接口其 `engine_ms`、`queue_ms` 为 null，不使用额外 HTTP 调用冒充本次 MCP 的内部时间。
 - 分片的 `MatchTreeConstruction`/`MatchTreeSearch` 是累计工作量，不能直接与总墙钟耗时相加。
 - 文件名模式应保持 `FilesLoaded=0`；候选数、加载字节和响应大小用于解释退化，而不是只盯最终耗时。
 
 ### 11.5 纳入实现计划的性能验收
 
 1. **先做确定性 fixture**：检验完整正则参数、文件过滤、大小写、首尾行/短文件/空文件/无末尾换行、跨行片段、重叠合并、真实裁剪与超时传播。少返回正确结果不能抵消漏搜或过滤错误。
-2. **优先完成 MCP 主套件**：实现后扩展脚本，以新 MCP `search` 的 files/snippets 和 `search_raw` 为默认主验收，通过真实 `tools/call` 测试。需要旧版对比时使用独立的 legacy 调用配置，向旧 search 传 query/prefix；新工具缺失时明确失败，禁止静默退回 HTTP 或旧工具。统一用例意图，但分别映射新旧参数；验证语义一致，不能把旧的全局命中数限制当作新的每文件片段限制。
+2. **MCP 主套件**：脚本已支持新 MCP `search` 的 files/snippets 和 `search_raw`，通过真实 `tools/call` 测试。旧版对比使用独立 legacy 配置；新工具缺失时明确失败。统一用例意图，但分别映射新旧参数；不能把旧的全局命中数限制当作新的每文件片段限制。
 3. **补接口 Go benchmark 与 HTTP 套件**：分别测 AST 构造、上下文合并、各接口的输出编码与分配；增加 MCP handler、POST JSON handler、GET JSON handler benchmark。随后在实际 Unreal 索引上跑 MCP、HTTP POST、HTTP GET 三组端到端测试。各接口耗时和返回大小单列，微基准不能替代真实接口验收。
 4. **区分负载等级**：正常选择性查询、全库较多结果、短词/通配压力查询分组报告。context_lines 测 0/5/20；files 测 200/2000/20000；snippets 分开测每文件 20/200 和受控的大文件数。大响应压力测试必须受期限和部署边界保护，不能在普通 CI 里无约束物化最大值乘积。
 5. **固定比较条件**：同一机器、CPU/并发设置、build 模式、原始语料和索引配置；索引完成后测试，保持查询和返回限制相同。当前报告记录语料规模及索引元数据，但它们不等同于完整语料校验。新旧 build 的严格对比应使用冻结的源文件集合。
-6. **自动汇总和判定**：后续脚本适配器增加 baseline 比较，按接口、查询组输出 p50/p95/max、HTTP/MCP 延迟、响应体积、扫描/裁剪信号与语义差异；MCP 是主报告，HTTP 两条入口各有独立回归结论，不能混成一个平均值。有效负载减少、超时或结果不完整不能计为性能改善。连续两轮超过各自基线 20% 且绝对增加超过 5 ms 时提示退化，再用 profiling 定位；具体阈值根据固定测试机噪声校准。
+6. **自动汇总和判定**：脚本已支持 `--baseline`，按接口、用例输出 p50/p95/max、延迟、响应体积、扫描/裁剪信号与结果签名差异。请求、profile 或并发不同记为不可比；覆盖或结果变化单列，不算性能改善。p95 超过基线 20% 且绝对增加超过 5 ms 时记为回归候选并非零退出；需再运行一轮确认，脚本不会自动重跑或替换基线。历史 HTTP 报告缺少新请求配置字段时不能直接自动比较，须冻结语料后另建同格式基线。
 7. **分开测热、冷和并发**：日常性能门禁使用明确预热、至少 100 次正常查询样本，主要看 p95；当前 30 次是初步基线。冷启动需单独受控启动并注明页缓存状态，不以“第一次查询”冒充冷缓存；并发 1 与 4 分开测试，统计排队。压力探测独立执行，不掺入正常组。
 
 建议初始目标，待新接口在固定机器上实测后冻结为门禁：
@@ -467,7 +490,7 @@ python scripts/benchmark_search.py --repo ue --include-stress --case weak_branch
 
 ### 11.6 MCP 主验收与 HTTP 回归的具体执行口径
 
-以下为待实现脚本能力，当前脚本仍只支持 POST `/api/search`。
+以下接口适配均已实现；真实 Unreal 的新服务验收尚未执行。
 
 | 套件 | 真实请求链路 | 验收责任 |
 |---|---|---|
@@ -486,3 +509,62 @@ HTTP 继续记录发送至收完响应的时间。MCP/HTTP 均另行记录客户
 MCP 若未暴露引擎 Stats，主报告仍以真实 tools/call 总耗时为准；可在独立的 HTTP 对照运行中采集引擎指标，但不能把那次查询的 Duration 当成本次 MCP 的内部耗时。额外统计请求不放入主计时区间；并发测试也不能同时运行另一套基准干扰结果。
 
 在小 fixture 中严格验证完整预期集合；在 Unreal 上至少验证已知正向证据、路径/仓库约束、返回完整性或裁剪状态、同语料下的稳定性。对原生接口缺乏可靠完成标记的情况明确记为未知，不伪造新 MCP 的完成状态。结果正确性、MCP 延迟、HTTP 兼容性和 HTTP 延迟分别出结论，任一必做套件未运行或失败，都不能标记本次部署验收全部通过。
+
+## 12. 实现交付与本机验证
+
+### 12.1 代码与行为
+
+| 实现 | 位置 |
+|---|---|
+| 新 search 参数、完整 regex AST、范围过滤、上下文合并及紧凑结果 | [mcp_search.go](../cmd/zoekt-webserver/mcp_search.go) |
+| 三个工具的协议注册、原接口改名 search_raw、编码后期限状态复核 | [mcp.go](../cmd/zoekt-webserver/mcp.go) |
+| 新接口专用的跨分片预算和完成信号 | [searchbudget](../internal/searchbudget/budget.go)、[index/eval.go](../index/eval.go)、[search/shards.go](../search/shards.go) |
+| Windows 索引路径、子仓库及删除标记规范化 | [index/builder.go](../index/builder.go)、[index/shard_builder.go](../index/shard_builder.go)、[gitindex/tree.go](../gitindex/tree.go) |
+| 两仓库真实索引 fixture | [internal/searchtest](../internal/searchtest/fixture.go) |
+| MCP 新旧接口正确性及微基准 | [mcp_search_test.go](../cmd/zoekt-webserver/mcp_search_test.go)、原有 [mcp_test.go](../cmd/zoekt-webserver/mcp_test.go) |
+| HTTP 两入口的过滤、行号、编码、上下文和错误契约及微基准 | [web/agent_search_test.go](../web/agent_search_test.go)、原有 [JSON 测试](../internal/json/json_test.go) |
+| 索引路径、子仓库、删除标记、预算及跨分片完成测试 | [index 测试](../index/agent_search_test.go)、[search 测试](../search/agent_search_test.go)、[Git 路径测试](../gitindex/agent_search_test.go) |
+| Unreal MCP/HTTP 多接口性能脚本及离线适配测试 | [runner](../scripts/benchmark_search.py)、[adapters](../scripts/search_benchmark_backends.py)、[tests](../scripts/test_benchmark_search.py) |
+
+查询直接生成 `RepoSet AND path_regex AND pattern`，原生查询字符串拼接不参与新 search。保留 regex 内嵌大小写标志，并修正单词边界优化对 FoldCase 的处理，避免默认不敏感模式下 `\balpha\b` 漏掉 `Alpha`。
+
+`partial_reasons` 区分扫描期限/取消/引擎限额与展示裁剪：`timeout`、`cancelled`、`match_limit`、`index_not_ready`、`shard_error`、`search_error`、`search_incomplete` 表示搜索覆盖不完整；`file_limit`、`snippet_limit` 表示省略已发现结果。`response_limit` 可能在引擎保留或最终格式化阶段触发，分别影响搜索完成和输出裁剪状态。元数据查询失败记为 `path_metadata_unavailable`，仍可返回仓库及逻辑路径。无法取得可靠完成证据的搜索器返回 `search_complete=unknown`。
+
+默认 3000 ms 期限从 HTTP handler 收到请求时开始，传至搜索调度、引擎、元数据读取和格式化。JSON 编码后再次检查期限并更新状态，始终返回完整 JSON；它不是强制在精确毫秒边界中断所有分配或网络写入的保证。
+
+### 12.2 自动测试与构建
+
+2026-10-28 在 Windows 本机执行以下新增契约测试及离线 Python 测试，均通过。`httptest.NewServer` 仅使用操作系统分配的临时端口；没有启动 zoekt 应用、后台索引器或连接现有 Unreal 服务。
+
+```powershell
+$env:GOMAXPROCS='2'
+go test -p 1 ./cmd/zoekt-webserver ./web ./internal/json ./index ./search ./gitindex -run '^(TestMCP|TestHTTP|TestAgent|TestClientServer|TestProgressNotEncoded)' -count=1
+python -B -m unittest discover -s scripts -p test_benchmark_search.py
+go build -p 1 ./cmd/zoekt-webserver ./cmd/zoekt-index ./cmd/zoekt-git-index
+```
+
+新增 [CI](../.github/workflows/search-interfaces.yml) 在 Windows 和 Linux 跑这些接口与路径契约测试及 Python 离线测试。Linux 的 CI 执行结果须以实际工作流为准，本机没有宣称验证 Linux 运行结果。
+
+扩大检查范围后，根包、query、search、internal/json、webserver 和 zoekt-index 的短测试通过。index/web 有 4 个既有失败：`TestIgnoreSizeMax`、`TestOptions_shardName`、`TestShardName`、`TestTruncateLine`；在临时目录解出的干净 HEAD 中独立复现，相应旧测试文件与实现前版本一致。排除这 4 个已确认失败后，其余 index/web 短测试通过。Git 全量集成测试还依赖本机不存在的 `/bin/sh` / `sh`，并有旧 mmap 文件清理失败，故不标记全仓测试全部通过。
+
+Windows 上的 `go build ./cmd/...` 包含使用 Unix 信号和 Umask 的 `zoekt-sourcegraph-indexserver`，不能整体构建；并行链接也曾耗尽本机内存。因此对 webserver、普通索引器和 Git 索引器使用 `-p 1` 构建并通过。没有改动无关的 Unix 专用命令来规避这些限制。
+
+### 12.3 接口微基准与部署验收
+
+```powershell
+$env:GOMAXPROCS='2'
+go test -p 1 ./cmd/zoekt-webserver ./web -run '^$' -bench '^(BenchmarkMCPSearch|BenchmarkHTTPJSONSearch)$' -benchmem -benchtime=100ms -count=1
+```
+
+本机 i9-10900K、Windows amd64、GOMAXPROCS=2 的一次短测：
+
+| 小 fixture 接口 | ns/op | B/op | allocs/op |
+|---|---:|---:|---:|
+| MCP search | 76155 | 31316 | 381 |
+| MCP search_raw | 68323 | 33902 | 431 |
+| HTTP POST | 82211 | 36383 | 453 |
+| HTTP GET JSON | 77619 | 38567 | 491 |
+
+这些 benchmark 使用真实小索引及 handler/编码，但没有网络传输，只是单轮均摊结果，不是 p95，也不能据此推断 Unreal 的毫秒级性能。真实 MCP 延迟、较大返回、冷启动和固定机器回归门禁仍以第 11 节的部署验收为准。
+
+部署时先使用新构建完成 Unreal 索引，再刷新客户端工具清单，确认 `search(pattern, ...)` 和 `search_raw(query, prefix)`。历史索引若保存了 Windows 反斜杠路径，需要完整重建；仅更新二进制或工具提示不会改写已有索引。本轮保留正在运行的旧服务及已有索引，未执行任何 Unreal 性能新测。

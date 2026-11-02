@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp/syntax"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +19,7 @@ const defaultMCPMaxResponseBytes = 16 << 20
 
 const mcpAgentSearchDescription = `Search indexed code with regex, case-insensitive by default.
 mode=files searches indexed relative paths and returns filenames; mode=snippets searches content and returns matching lines with context (default: 5 before and 5 after, clipped at file boundaries).
-Paths use /, also on Windows. path_regex matches any part of the indexed relative path unless anchored; it is not a filesystem path or literal prefix. Example: (^|/)TnT/Code/ matches that directory at any depth. The index root itself is omitted. Use list_repos to discover exact repository names.
+Paths use /, also on Windows. path_regex matches any part of the indexed relative path unless anchored; it is not a filesystem path or literal prefix. Example: (^|/)TnT/Code/ matches that directory at any depth. The index root itself is omitted. Use list_repos to discover exact repository names. case sets the initial regex case mode; explicit inline flags such as (?-i:Name) retain their normal meaning.
 pattern and path_regex are complete Go/RE2-style regex strings, not native Zoekt expressions, glob patterns, or /regex/ literals. Spaces are literal. Backslashes remain regex escapes; use / for path separators. JSON escaping is a separate layer.
 Use related alternatives such as Foo|Bar, (Create|Init|Setup).*Renderer, or \b(CreateRenderer|DestroyRenderer)\s*\( to cover naming variants in one call. The latter matches textual call/declaration shapes, not semantic references. xx.+|yy.+ is valid but requires at least one trailing character and its short fixed strings may scan broadly. Prefer distinctive literal terms and narrow repo/path scope; a weak or wildcard-only OR branch can make the entire search expensive. Lookaround and backreferences are unsupported. Use (?s:BeginFrame.{0,300}EndFrame) only when bounded cross-line matching is needed.
 Every regex alternative stays inside the explicit repos/path_regex scope. For file-level Boolean combinations or native query syntax, use search_raw. Renderer.*Cache requires order on a line; it does not mean both words anywhere in a file.
@@ -46,6 +46,11 @@ func parseMCPSearchArgs(raw json.RawMessage) (mcpSearchArgs, query.Q, error) {
 		return a, nil, fmt.Errorf("search arguments must be an object")
 	}
 	for name, value := range fields {
+		switch name {
+		case "pattern", "mode", "repos", "path_regex", "case", "context_lines", "max_files", "max_snippets_per_file", "timeout_ms":
+		default:
+			return a, nil, fmt.Errorf("unknown search argument %q", name)
+		}
 		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return a, nil, fmt.Errorf("%s must not be null", name)
 		}
@@ -87,17 +92,17 @@ func parseMCPSearchArgs(raw json.RawMessage) (mcpSearchArgs, query.Q, error) {
 		return a, nil, fmt.Errorf("repos must not be empty")
 	}
 	regex := func(pattern string, content, file bool) (query.Q, error) {
-		q, err := query.RegexpQuery(pattern, content, file)
+		flags := syntax.ClassNL | syntax.PerlX | syntax.UnicodeGroups
+		if a.Case == "insensitive" {
+			flags |= syntax.FoldCase
+		}
+		re, err := syntax.Parse(pattern, flags)
 		if err != nil {
 			return nil, err
 		}
-		switch q := q.(type) {
-		case *query.Substring:
-			q.CaseSensitive = a.Case == "sensitive"
-		case *query.Regexp:
-			q.CaseSensitive = a.Case == "sensitive"
-		}
-		return q, nil
+		// Keep scoped flags in the syntax tree, including (?-i:...). Turning
+		// a folded literal into Substring here would discard its regex flags.
+		return &query.Regexp{Regexp: query.OptimizeRegexp(re, flags), Content: content, FileName: file, CaseSensitive: true}, nil
 	}
 	pattern, err := regex(a.Pattern, a.Mode == "snippets", a.Mode == "files")
 	if err != nil {
@@ -138,6 +143,14 @@ func (s *mcpSearchStatus) reason(reason string, incomplete, truncated bool) {
 	s.Truncated = s.Truncated || truncated
 }
 
+func (s *mcpSearchStatus) contextError(ctx context.Context, truncated bool) {
+	reason := "timeout"
+	if ctx.Err() == context.Canceled {
+		reason = "cancelled"
+	}
+	s.reason(reason, true, truncated)
+}
+
 func (s mcpSearchStatus) header() string {
 	reasons := make([]string, 0, len(s.Reasons))
 	for r := range s.Reasons {
@@ -173,6 +186,7 @@ func (h *mcpHandler) callAgentSearch(ctx context.Context, a mcpSearchArgs, q que
 		name string
 	}{
 		{searchbudget.Timeout, "timeout"}, {searchbudget.MatchLimit, "match_limit"},
+		{searchbudget.Cancelled, "cancelled"},
 		{searchbudget.ResponseLimit, "response_limit"}, {searchbudget.ShardError, "shard_error"}, {searchbudget.IndexNotReady, "index_not_ready"},
 	} {
 		if flags&f.flag != 0 {
@@ -180,7 +194,7 @@ func (h *mcpHandler) callAgentSearch(ctx context.Context, a mcpSearchArgs, q que
 		}
 	}
 	if ctx.Err() != nil {
-		status.reason("timeout", true, false)
+		status.contextError(ctx, false)
 	}
 	if err != nil && ctx.Err() == nil {
 		status.reason("search_error", true, false)
@@ -188,13 +202,13 @@ func (h *mcpHandler) callAgentSearch(ctx context.Context, a mcpSearchArgs, q que
 	if result == nil {
 		result = &zoekt.SearchResult{}
 	}
-	if result.Crashes > 0 {
+	if result.Crashes > 0 && (flags&searchbudget.IndexNotReady == 0 || result.Crashes > 1) {
 		status.reason("shard_error", true, false)
 	}
 	if (result.FilesSkipped > 0 || result.ShardsSkipped > 0) && status.Complete != "false" {
-		status.reason("match_limit", true, false)
+		status.reason("search_incomplete", true, false)
 	}
-	if len(result.Files) > a.MaxFiles || result.FileCount > len(result.Files) {
+	if len(result.Files) > a.MaxFiles || (result.FileCount > len(result.Files) && flags&searchbudget.ResponseLimit == 0) {
 		status.reason("file_limit", false, true)
 	}
 	files := result.Files
@@ -210,7 +224,7 @@ func (h *mcpHandler) callAgentSearch(ctx context.Context, a mcpSearchArgs, q que
 	}
 	text := formatMCPSearch(ctx, files, repos, a, status, maxBytes)
 	if ctx.Err() != nil {
-		status.reason("timeout", true, false)
+		status.contextError(ctx, false)
 	}
 	deadline, _ := ctx.Deadline()
 	return mcpToolResult{Content: []mcpToolTextContent{{Type: "text", Text: status.header() + text}}, IsError: searchError, searchStatus: status, searchDeadline: deadline}
@@ -237,10 +251,14 @@ func (w *mcpTextWriter) append(s string) bool {
 
 func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[string]*zoekt.Repository, a mcpSearchArgs, status *mcpSearchStatus, maxBytes int) string {
 	w := mcpTextWriter{remaining: max(0, maxBytes-1024)} // envelope + completion header
+	quote := func(s string) string {
+		encoded, _ := json.Marshal(s)
+		return string(encoded)
+	}
 	seen := map[string]bool{}
 	for _, f := range files {
 		if ctx.Err() != nil {
-			status.reason("timeout", true, true)
+			status.contextError(ctx, true)
 			break
 		}
 		key := f.Repository + "\x00" + f.FileName
@@ -248,10 +266,10 @@ func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[str
 			continue
 		}
 		seen[key] = true
-		header := "\nrepo=" + strconv.Quote(f.Repository) + " path=" + strconv.Quote(f.FileName) + "\n"
+		header := "\nrepo=" + quote(f.Repository) + " path=" + quote(f.FileName) + "\n"
 		if repo := repos[f.Repository]; repo != nil {
 			if abs := zoekt.ResolveFileSystemPath(repo, f.FileName); abs != "" {
-				header += "absolute_path=" + strconv.Quote(abs) + "\n"
+				header += "absolute_path=" + quote(abs) + "\n"
 			}
 		}
 		if a.Mode == "files" {
@@ -271,7 +289,7 @@ func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[str
 		}
 		for _, c := range chunks {
 			if ctx.Err() != nil {
-				status.reason("timeout", true, true)
+				status.contextError(ctx, true)
 				return w.text.String()
 			}
 			// Refuse an oversized snippet before allocating its formatted copy.
@@ -285,9 +303,12 @@ func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[str
 			fmt.Fprintf(&snippet, "lines=%d-%d\n", c.ContentStart.LineNumber, last)
 			lineNo, data, offset := c.ContentStart.LineNumber, c.Content, c.ContentStart.ByteOffset
 			rangeIndex := 0
+			if len(data) == 0 && len(c.Ranges) > 0 {
+				fmt.Fprintf(&snippet, "%d>| \n", lineNo)
+			}
 			for len(data) > 0 {
 				if ctx.Err() != nil {
-					status.reason("timeout", true, true)
+					status.contextError(ctx, true)
 					return w.text.String()
 				}
 				n := bytes.IndexByte(data, '\n')
@@ -300,6 +321,10 @@ func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[str
 					rangeIndex++
 				}
 				hit := rangeIndex < len(c.Ranges) && c.Ranges[rangeIndex].Start.ByteOffset < offset+uint32(n)
+				if !hit && rangeIndex < len(c.Ranges) && n == len(data) && data[n-1] != '\n' {
+					r := c.Ranges[rangeIndex]
+					hit = r.Start.ByteOffset == r.End.ByteOffset && r.Start.ByteOffset == offset+uint32(n)
+				}
 				marker := " | "
 				if hit {
 					marker = ">| "
@@ -312,6 +337,11 @@ func formatMCPSearch(ctx context.Context, files []zoekt.FileMatch, repos map[str
 					status.reason("response_limit", false, true)
 					return w.text.String()
 				}
+			}
+			// A zero-width EOF match after a final newline belongs to the next
+			// empty line, which has no source bytes for the loop above to visit.
+			if len(c.Content) > 0 && lineNo <= last {
+				fmt.Fprintf(&snippet, "%d>| \n", lineNo)
 			}
 			if !w.append(snippet.String()) {
 				status.reason("response_limit", false, true)
@@ -328,7 +358,13 @@ func chunkLastLine(c zoekt.ChunkMatch) uint32 {
 	if len(c.Content) > 0 && c.Content[len(c.Content)-1] != '\n' {
 		n++
 	}
-	return c.ContentStart.LineNumber + uint32(max(1, n)) - 1
+	last := c.ContentStart.LineNumber + uint32(max(1, n)) - 1
+	for _, r := range c.Ranges {
+		if r.Start.ByteOffset == r.End.ByteOffset {
+			last = max(last, r.Start.LineNumber)
+		}
+	}
+	return last
 }
 
 func mergeMCPChunks(input []zoekt.ChunkMatch) []zoekt.ChunkMatch {

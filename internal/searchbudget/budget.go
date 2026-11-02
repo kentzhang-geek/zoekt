@@ -14,14 +14,16 @@ type key struct{}
 const (
 	Known uint32 = 1 << iota
 	Timeout
+	Cancelled
 	MatchLimit
 	ResponseLimit
 	ShardError
 	IndexNotReady
 )
 
-// Budget bounds retained result data across concurrent shards. Bytes are not
-// refunded when ranking drops a result: the limit is deliberately conservative.
+// Budget bounds estimated retained result data across concurrent shards. It is
+// not a process heap limit: decoding and matching still need temporary buffers.
+// Bytes are not refunded when ranking drops a result, making it conservative.
 type Budget struct {
 	limit int64
 	used  atomic.Int64
@@ -58,11 +60,18 @@ func (b *Budget) Finish(ctx context.Context, err error) {
 		return
 	}
 	b.Mark(Known)
-	if ctx.Err() != nil {
-		b.Mark(Timeout)
-	}
+	b.MarkContext(ctx)
 	if err != nil && ctx.Err() == nil {
 		b.Mark(ShardError)
+	}
+}
+
+func (b *Budget) MarkContext(ctx context.Context) {
+	switch ctx.Err() {
+	case context.DeadlineExceeded:
+		b.Mark(Timeout)
+	case context.Canceled:
+		b.Mark(Cancelled)
 	}
 }
 

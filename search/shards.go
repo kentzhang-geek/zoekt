@@ -772,9 +772,7 @@ func streamSearch(ctx context.Context, proc *process, q query.Q, opts *zoekt.Sea
 	var totalMatchCount int
 	budget := searchbudget.From(ctx)
 	defer func() {
-		if ctx.Err() != nil {
-			budget.Mark(searchbudget.Timeout)
-		}
+		budget.MarkContext(ctx)
 	}()
 
 search:

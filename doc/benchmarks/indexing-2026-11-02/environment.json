@@ -1,0 +1,23 @@
+{
+  "date_utc": "2026-11-02",
+  "source_commit": "9a66d70d",
+  "go": "go1.25.5 windows/amd64",
+  "cpu": "Intel Core i9-10900K",
+  "physical_cores": 10,
+  "logical_processors": 20,
+  "probe_gomaxprocs": 20,
+  "ram_gib": 63.9066162109375,
+  "available_ram_gib_at_initial_read": 32.9677734375,
+  "persistent_user_gomaxprocs": null,
+  "persistent_machine_gomaxprocs": null,
+  "disk_models": ["WDS500G3X0C-00SJG0", "WDC WDS100T2B0C-00PXH0"],
+  "disk_bus_types": ["NVMe", "NVMe"],
+  "config": "C:\\Users\\64223\\.zoekt\\UE.json",
+  "config_parallelism": 64,
+  "historical_index_start_utc": "2026-11-02T02:37:53.4696103Z",
+  "historical_has_symbols": false,
+  "historical_runtime_environment": "unknown; current process settings do not reconstruct the historical launching shell",
+  "cache_control": "none; later runs have warmed filesystem data and metadata",
+  "benchmark_output_drive": "D",
+  "historical_index_drive": "C"
+}

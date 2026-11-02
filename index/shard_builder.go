@@ -60,8 +60,11 @@ func HostnameBestEffort() string {
 const runeOffsetFrequency = 100
 
 type postingsBuilder struct {
-	postings    map[ngram][]byte
-	lastOffsets map[ngram]uint32
+	// IDs are one-based so an absent trigram needs only one map lookup. Keep
+	// mutable posting state in a dense slice rather than updating two maps for
+	// every character in the corpus.
+	postingIDs map[ngram]uint32
+	lists      []postingList
 
 	// To support UTF-8 searching, we must map back runes to byte
 	// offsets. As a first attempt, we sample regularly. The
@@ -76,10 +79,14 @@ type postingsBuilder struct {
 	endByte  uint32
 }
 
+type postingList struct {
+	data       []byte
+	lastOffset uint32
+}
+
 func newPostingsBuilder() *postingsBuilder {
 	return &postingsBuilder{
-		postings:     map[ngram][]byte{},
-		lastOffsets:  map[ngram]uint32{},
+		postingIDs:   map[ngram]uint32{},
 		isPlainASCII: true,
 	}
 }
@@ -130,12 +137,18 @@ func (s *postingsBuilder) newSearchableString(data []byte, byteSections []Docume
 		}
 
 		ng := runesToNGram(runeGram)
-		lastOff := s.lastOffsets[ng]
+		id := s.postingIDs[ng]
+		if id == 0 {
+			s.lists = append(s.lists, postingList{})
+			id = uint32(len(s.lists))
+			s.postingIDs[ng] = id
+		}
+		posting := &s.lists[id-1]
 		newOff := endRune + uint32(runeIndex) - 2
 
-		m := binary.PutUvarint(buf[:], uint64(newOff-lastOff))
-		s.postings[ng] = append(s.postings[ng], buf[:m]...)
-		s.lastOffsets[ng] = newOff
+		m := binary.PutUvarint(buf[:], uint64(newOff-posting.lastOffset))
+		posting.data = append(posting.data, buf[:m]...)
+		posting.lastOffset = newOff
 	}
 	s.runeCount += runeIndex
 

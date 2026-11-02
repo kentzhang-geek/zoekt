@@ -81,7 +81,27 @@ Field notes:
 - `repo_name`: The repository name shown in search results.
 - `file_extensions`: Pipe-separated extension allowlist (without dots). The example includes Unreal C/C++ headers/sources plus shader files (`usf`, `ush`).
 - `parallelism`: Number of indexing workers (set to `64` in this example).
+- `read_parallelism`: Number of workers that read, check, and detect the language of files. When omitted or `0`, this uses the smaller of `GOMAXPROCS` and `parallelism`. The CLI flag `-read_parallelism` supplies the default for configurations that omit it.
 - `index_dir`: Output directory for generated Zoekt shard/index files.
+
+`parallelism` limits concurrent **shard builds**. Reading and checking use a
+separate bounded worker pool, with documents submitted in traversal order so
+shard boundaries and ranking remain reproducible. The input window reserves up
+to 64 MiB based on file sizes; explicitly allowed larger files are processed
+with an exclusive reservation. This limit does not include memory held by shard
+builders, and files that grow during reading can exceed the estimate.
+
+Startup logs show the effective CPU and worker limits, followed by input and
+per-shard timings. `read_work` and `prepare_work` are sums across workers and may
+exceed elapsed time. To profile a named configuration, put flags before `update`:
+
+```powershell
+zoekt-index -cpu_profile index.pprof update unreal-engine
+```
+
+This CLI profile covers the command and takes precedence over per-config
+`cpu_profile` settings. An input error aborts the build without replacing the
+previously published repository with a partial file set.
 
 This is useful when you keep repeatable indexing definitions and want to trigger refreshes by name.
 

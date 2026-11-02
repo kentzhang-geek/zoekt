@@ -79,8 +79,8 @@ func writeUint32Bitmap(w *writer, dat []uint32) {
 func writePostings(w *writer, s *postingsBuilder, ngramText *simpleSection,
 	charOffsets *simpleSection, postings *compoundSection, endRunes *simpleSection,
 ) {
-	keys := make(ngramSlice, 0, len(s.postings))
-	for k := range s.postings {
+	keys := make(ngramSlice, 0, len(s.postingIDs))
+	for k := range s.postingIDs {
 		keys = append(keys, k)
 	}
 	sort.Sort(keys)
@@ -95,7 +95,7 @@ func writePostings(w *writer, s *postingsBuilder, ngramText *simpleSection,
 
 	postings.start(w)
 	for _, k := range keys {
-		postings.addItem(w, s.postings[k])
+		postings.addItem(w, s.lists[s.postingIDs[k]-1].data)
 	}
 	postings.end(w)
 

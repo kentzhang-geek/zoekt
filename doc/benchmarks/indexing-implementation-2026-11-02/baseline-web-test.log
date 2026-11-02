@@ -1,0 +1,5 @@
+--- FAIL: TestTruncateLine (0.04s)
+    e2e_test.go:896: got 20kb response, want <= 10kb
+FAIL
+FAIL	github.com/sourcegraph/zoekt/web	0.267s
+FAIL

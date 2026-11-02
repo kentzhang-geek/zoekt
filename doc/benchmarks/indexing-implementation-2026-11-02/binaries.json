@@ -1,0 +1,14 @@
+[
+  {
+    "Path": "D:\\Code\\zoekt\\cmd\\zoekt-index\\zoekt-index.exe",
+    "Hash": "4D47376D38D2434AD55CA6B02028A0B74D0958019619C6A4E973EB488B375515"
+  },
+  {
+    "Path": "D:\\Code\\zoekt\\cmd\\zoekt-index\\zoekt-index-before-speedup.exe",
+    "Hash": "2FB81DBE3D2921510646510E8C8347FDF548DB4F2C58B8558F24AE3709909F81"
+  },
+  {
+    "Path": "D:\\Code\\zoekt\\.tmp-index-speed\\baseline.exe",
+    "Hash": "2FB81DBE3D2921510646510E8C8347FDF548DB4F2C58B8558F24AE3709909F81"
+  }
+]

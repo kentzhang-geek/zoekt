@@ -1,0 +1,18 @@
+--- FAIL: TestIgnoreSizeMax (0.00s)
+    --- FAIL: TestIgnoreSizeMax/positive_escaped_pattern_allows (0.00s)
+        builder_test.go:1066: IgnoreSizeMax() for filepath !F0 returned unexpected result false
+        builder_test.go:1066: IgnoreSizeMax() for filepath !F1 returned unexpected result false
+    --- FAIL: TestIgnoreSizeMax/postive_escaped_pattern_does_not_disallow (0.00s)
+        builder_test.go:1066: IgnoreSizeMax() for filepath !F0 returned unexpected result false
+--- FAIL: TestOptions_shardName (0.00s)
+    builder_test.go:1182: expected shard name to be repo name based:
+        got:  "\\data\\a%2Fb_v16.00000.zoekt"
+        want: "/data/a%2Fb_v16.00000.zoekt"
+--- FAIL: TestShardName (0.00s)
+    --- FAIL: TestShardName/short_prefix (0.00s)
+        shard_builder_test.go:45: expected "index/short_v1.00042.zoekt", got "index\\short_v1.00042.zoekt"
+    --- FAIL: TestShardName/long_prefix_truncated (0.00s)
+        shard_builder_test.go:45: expected "index/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa003ef1ba_v2.00001.zoekt", got "index\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa003ef1ba_v2.00001.zoekt"
+FAIL
+FAIL	github.com/sourcegraph/zoekt/index	0.287s
+FAIL

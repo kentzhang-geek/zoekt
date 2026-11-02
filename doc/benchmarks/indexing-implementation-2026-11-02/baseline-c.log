@@ -1,0 +1,23 @@
+2026/11/01 21:12:20 Indexing config "UE" as repository: ue
+2026/11/01 21:12:20 adding path to repository ue: D:\Code\UnrealEngine\Engine\Source
+2026/11/01 21:12:38 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00000.zoekt: 289806967 index bytes (overhead 2.8), 11325 files processed
+2026/11/01 21:12:42 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00001.zoekt: 290897749 index bytes (overhead 2.8), 10650 files processed
+2026/11/01 21:12:46 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00002.zoekt: 290395218 index bytes (overhead 2.8), 9119 files processed
+2026/11/01 21:12:49 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00004.zoekt: 271510045 index bytes (overhead 2.6), 10848 files processed
+2026/11/01 21:12:50 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00003.zoekt: 281001744 index bytes (overhead 2.7), 10244 files processed
+2026/11/01 21:12:59 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00005.zoekt: 283761573 index bytes (overhead 2.7), 7931 files processed
+2026/11/01 21:13:04 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00007.zoekt: 276353147 index bytes (overhead 2.6), 5469 files processed
+2026/11/01 21:13:06 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00006.zoekt: 275656327 index bytes (overhead 2.6), 9566 files processed
+2026/11/01 21:13:06 adding path to repository ue: D:\Code\UnrealEngine\Engine\Shaders
+2026/11/01 21:13:07 adding path to repository ue: D:\Code\UnrealEngine\Engine\Extras
+2026/11/01 21:13:08 adding path to repository ue: D:\Code\UnrealEngine\Engine\Programs
+2026/11/01 21:13:08 adding path to repository ue: D:\Code\UnrealEngine\Engine\Plugins
+2026/11/01 21:13:09 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00008.zoekt: 279721787 index bytes (overhead 2.7), 6247 files processed
+2026/11/01 21:13:15 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00010.zoekt: 281833134 index bytes (overhead 2.7), 7282 files processed
+2026/11/01 21:13:16 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00009.zoekt: 282712804 index bytes (overhead 2.7), 7389 files processed
+2026/11/01 21:13:27 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00011.zoekt: 282380616 index bytes (overhead 2.7), 9851 files processed
+2026/11/01 21:13:28 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00012.zoekt: 283247006 index bytes (overhead 2.7), 10997 files processed
+2026/11/01 21:13:32 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00013.zoekt: 286788385 index bytes (overhead 2.7), 14815 files processed
+2026/11/01 21:13:35 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00014.zoekt: 283906144 index bytes (overhead 2.7), 11630 files processed
+2026/11/01 21:13:37 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00015.zoekt: 288246022 index bytes (overhead 2.7), 10520 files processed
+2026/11/01 21:13:38 finished shard C:\Users\64223\AppData\Local\Packages\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\AC\Temp\zoekt-index-speed-20261102\baseline-c\ue_v16.00016.zoekt: 205071250 index bytes (overhead 2.8), 14150 files processed

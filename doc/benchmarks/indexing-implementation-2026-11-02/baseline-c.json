@@ -1,0 +1,17 @@
+{
+  "args": [
+    "D:\\Code\\zoekt\\.tmp-index-speed\\baseline.exe",
+    "-index_dir",
+    "C:\\Users\\64223\\AppData\\Local\\Packages\\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\\AC\\Temp\\zoekt-index-speed-20261102\\baseline-c",
+    "update",
+    "UE"
+  ],
+  "output": "C:\\Users\\64223\\AppData\\Local\\Packages\\sandbox.{3121cc87-ad01-4a0c-8fab-f35bc1a771a9}\\AC\\Temp\\zoekt-index-speed-20261102\\baseline-c",
+  "wall_s": 79.67390039999736,
+  "cpu_s": 375.015625,
+  "average_cores": 4.706881715558793,
+  "exit_code": 0,
+  "gomaxprocs": 20,
+  "cache": "uncontrolled; no system cache reset",
+  "output_drive": "C:"
+}

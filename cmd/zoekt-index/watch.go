@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strings"
@@ -169,7 +171,7 @@ func runIndexConfig(configName string, config *IndexConfig, defaultIndexDir stri
 	}
 
 	repoName := configRepoName(configName, config)
-	opts := cmd.OptionsFromFlags()
+	opts := *cmd.OptionsFromFlags()
 	opts.IndexDir = indexOutputDir
 	if config.Parallelism > 0 {
 		opts.Parallelism = config.Parallelism
@@ -186,7 +188,7 @@ func runIndexConfig(configName string, config *IndexConfig, defaultIndexDir stri
 	}
 
 	log.Printf("Indexing config %q as repository: %s", configName, repoName)
-	if err := indexConfigPaths(config, *opts, ignoreDirMap, fileExts); err != nil {
+	if err := indexConfigPaths(config, opts, ignoreDirMap, fileExts); err != nil {
 		return err
 	}
 	if err := cleanupLegacyConfigShards(config, indexOutputDir, repoName); err != nil {
@@ -586,7 +588,16 @@ func cleanupLegacyConfigShards(config *IndexConfig, indexDir, currentRepoName st
 	return nil
 }
 
-func indexConfigPaths(config *IndexConfig, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
+func indexConfigPaths(config *IndexConfig, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) (err error) {
+	opts.SetDefaults()
+	configured := config.ReadParallelism
+	if configured == 0 {
+		configured = *readParallelism
+	}
+	workers, err := inputWorkers(configured, opts.Parallelism)
+	if err != nil {
+		return err
+	}
 	prefixes, err := configPathPrefixes(config.Paths)
 	if err != nil {
 		return err
@@ -600,13 +611,15 @@ func indexConfigPaths(config *IndexConfig, opts index.Options, ignore map[string
 	if err != nil {
 		return err
 	}
-	defer builder.Finish() // nolint:errcheck
+	defer func() { err = errors.Join(err, builder.Abort()) }()
 
+	logIndexSettings(opts, workers)
+	roots := make([]inputRoot, len(config.Paths))
 	for i, path := range config.Paths {
-		log.Printf("adding path to repository %s: %s", opts.RepositoryDescription.Name, path)
-		if err := addPathToBuilder(builder, path, prefixes[i], opts, ignore, fileExts); err != nil {
-			return fmt.Errorf("indexing %s: %w", path, err)
-		}
+		roots[i] = inputRoot{path: path, prefix: prefixes[i]}
+	}
+	if err := addPathsToBuilder(builder, roots, opts, ignore, fileExts, workers); err != nil {
+		return err
 	}
 
 	return builder.Finish()
@@ -712,7 +725,8 @@ func splitPathParts(path string) []string {
 	return parts
 }
 
-func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
+func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) (err error) {
+	opts.SetDefaults()
 	dir, err := filepath.Abs(filepath.Clean(arg))
 	if err != nil {
 		return err
@@ -723,7 +737,7 @@ func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileEx
 	if err != nil {
 		return err
 	}
-	defer builder.Finish() // nolint:errcheck
+	defer func() { err = errors.Join(err, builder.Abort()) }()
 
 	if err := addPathToBuilder(builder, dir, "", opts, ignore, fileExts); err != nil {
 		return err
@@ -733,51 +747,19 @@ func indexArg(arg string, opts index.Options, ignore map[string]struct{}, fileEx
 }
 
 func addPathToBuilder(builder *index.Builder, arg, pathPrefix string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {
-	dir, err := filepath.Abs(filepath.Clean(arg))
+	workers, err := inputWorkers(*readParallelism, opts.Parallelism)
 	if err != nil {
 		return err
 	}
 
-	comm := make(chan fileInfo, 100)
-	agg := fileAggregator{
-		ignoreDirs: ignore,
-		sink:       comm,
-		sizeMax:    int64(opts.SizeMax),
-		fileExts:   fileExts,
-	}
+	logIndexSettings(opts, workers)
+	return addPathsToBuilder(builder, []inputRoot{{path: arg, prefix: pathPrefix}}, opts, ignore, fileExts, workers)
+}
 
-	go func() {
-		if err := filepath.Walk(dir, agg.add); err != nil {
-			log.Fatal(err)
-		}
-		close(comm)
-	}()
-
-	for f := range comm {
-		displayName := displayNameForIndexedPath(dir, f.name)
-		if pathPrefix != "" {
-			displayName = filepath.ToSlash(filepath.Join(pathPrefix, displayName))
-		}
-		if f.size > int64(opts.SizeMax) && !opts.IgnoreSizeMax(displayName) {
-			if err := builder.Add(index.Document{
-				Name:       displayName,
-				SkipReason: index.SkipReasonTooLarge,
-			}); err != nil {
-				return err
-			}
-			continue
-		}
-		content, err := os.ReadFile(f.name)
-		if err != nil {
-			return err
-		}
-
-		if err := builder.AddFile(displayName, content); err != nil {
-			return err
-		}
-	}
-
-	return nil
+func logIndexSettings(opts index.Options, readers int) {
+	log.Printf("index settings: cpus=%d gomaxprocs=%d shard_workers=%d read_workers=%d shard_bytes=%d input_buffer_bytes=%d symbols=%t",
+		runtime.NumCPU(), runtime.GOMAXPROCS(0), opts.Parallelism, readers, opts.ShardMax, inputBufferBytes,
+		!opts.DisableCTags && (opts.CTagsPath != "" || opts.ScipCTagsPath != ""))
 }
 
 func indexArgWithFilters(arg string, opts index.Options, ignore map[string]struct{}, fileExts map[string]struct{}) error {

@@ -33,18 +33,6 @@ import (
 	"github.com/sourcegraph/zoekt/cmd"
 )
 
-type fileInfo struct {
-	name string
-	size int64
-}
-
-type fileAggregator struct {
-	ignoreDirs map[string]struct{}
-	sizeMax    int64
-	sink       chan fileInfo
-	fileExts   map[string]struct{} // Map of allowed file extensions
-}
-
 // IndexConfig represents a JSON configuration for indexing
 type IndexConfig struct {
 	// Paths to index
@@ -61,32 +49,9 @@ type IndexConfig struct {
 	IndexDir string `json:"index_dir"`
 	// Parallelism factor for indexing
 	Parallelism int `json:"parallelism"`
-}
-
-func (a *fileAggregator) add(path string, info os.FileInfo, err error) error {
-	if err != nil {
-		return err
-	}
-
-	if info.IsDir() {
-		base := filepath.Base(path)
-		if _, ok := a.ignoreDirs[base]; ok {
-			return filepath.SkipDir
-		}
-	}
-
-	if info.Mode().IsRegular() {
-		// Apply file extension filter if configured
-		if len(a.fileExts) > 0 {
-			ext := strings.ToLower(filepath.Ext(path))
-			if _, ok := a.fileExts[ext]; !ok {
-				return nil // Skip files with extensions not in the whitelist
-			}
-		}
-
-		a.sink <- fileInfo{path, info.Size()}
-	}
-	return nil
+	// ReadParallelism controls concurrent reading, checking and language detection.
+	// Zero selects the CLI setting, which defaults to automatic CPU-based sizing.
+	ReadParallelism int `json:"read_parallelism"`
 }
 
 // getZoektConfigDir returns the path to the .zoekt config directory
@@ -294,6 +259,21 @@ func main() {
 		return
 	}
 
+	// Apply runtime limits and CLI profiling to named configs as well as paths.
+	_, _ = maxprocs.Set()
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			_ = f.Close()
+			log.Fatal(err)
+		}
+		defer f.Close()
+		defer pprof.StopCPUProfile()
+	}
+
 	// Check for the "update" subcommand
 	if flag.NArg() >= 1 && flag.Arg(0) == "update" {
 		configNames := flag.Args()[1:]
@@ -303,7 +283,7 @@ func main() {
 			log.Fatalf("Failed to load configuration: %v", err)
 		}
 
-		if err := runNamedConfigs(configs, outputIndexDir, true); err != nil {
+		if err := runNamedConfigs(configs, outputIndexDir, *cpuProfile == ""); err != nil {
 			log.Fatalf("Failed to update configuration: %v", err)
 		}
 
@@ -332,23 +312,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Tune GOMAXPROCS to match Linux container CPU quota.
-	_, _ = maxprocs.Set()
-
 	opts := cmd.OptionsFromFlags()
 	// Set the index output directory
 	opts.IndexDir = outputIndexDir
-
-	if *cpuProfile != "" {
-		f, err := os.Create(*cpuProfile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal(err)
-		}
-		defer pprof.StopCPUProfile()
-	}
 
 	ignoreDirMap := buildIgnoreDirMap(*ignoreDirs)
 

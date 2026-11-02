@@ -1,0 +1,21 @@
+{
+  "args": [
+    "D:\\Code\\zoekt\\.tmp-index-speed\\optimized.exe",
+    "-index_dir",
+    "C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\optimized-c",
+    "-cpu_profile",
+    "D:\\Code\\zoekt\\doc\\benchmarks\\indexing-implementation-2026-11-02\\optimized-c.pprof",
+    "update",
+    "UE"
+  ],
+  "output": "C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\optimized-c",
+  "wall_s": 52.110319300030824,
+  "cpu_s": 387.953125,
+  "average_cores": 7.4448425995303875,
+  "exit_code": 0,
+  "gomaxprocs": 20,
+  "peak_working_set_bytes": 3329024000,
+  "sampled_peak_private_bytes": 3335327744,
+  "cache": "uncontrolled; no system cache reset",
+  "output_drive": "C:"
+}

@@ -1,0 +1,7 @@
+{"equal":true,"files":1192,"query":"file:^Source/Runtime/Core/Public/","sha256":"c88b43bd7718c1ed6186dd4908a69c538f6842a33b20c9c633948c177f113a5c"}
+{"equal":true,"files":903,"query":"file:^Source/Runtime/CoreUObject/ UObject","sha256":"c68b22039302aaff03c0c2ee357ba6abd9eb83df7a780897d70147d41eba34fe"}
+{"equal":true,"files":903,"query":"file:^Source/Runtime/CoreUObject/ case:yes UObject","sha256":"c68b22039302aaff03c0c2ee357ba6abd9eb83df7a780897d70147d41eba34fe"}
+{"equal":true,"files":311,"query":"file:^Source/Runtime/Core/ FName","sha256":"5cab37cc66e6d0e36f3692763ad7043e6c0730e46db61fb70efb8f1dee7a4912"}
+{"equal":true,"files":817,"query":"file:^Source/Runtime/Core/ content:F(Name|String)","sha256":"4bf743f9929e8a44cdc18dcf31b5e224ac47baf1b4330d4767e061eafdba3984"}
+{"equal":true,"files":41,"query":"file:^Source/Runtime/CoreUObject/ UPROPERTY or file:^Shaders/ IMPLEMENT_GLOBAL_SHADER","sha256":"1447473ae38511249e184d2a15f148ad3281d52e13c7fcfed8c145d983e9e1c1"}
+{"equal":true,"files":192,"query":"file:^Source/Runtime/Core/ FName FString","sha256":"8c542ad0e8b8fbdc6215a4f45b566aec232ea9f7369b30c6879eebc19c4b4428"}

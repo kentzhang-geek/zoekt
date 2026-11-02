@@ -1,0 +1,19 @@
+{
+  "args": [
+    "D:\\Code\\zoekt\\.tmp-index-speed\\baseline.exe",
+    "-index_dir",
+    "C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\baseline-c-repeat",
+    "update",
+    "UE"
+  ],
+  "output": "C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\baseline-c-repeat",
+  "wall_s": 82.99866580002708,
+  "cpu_s": 399.546875,
+  "average_cores": 4.813895152997382,
+  "exit_code": 0,
+  "gomaxprocs": 20,
+  "peak_working_set_bytes": 2625888256,
+  "sampled_peak_private_bytes": 2629480448,
+  "cache": "uncontrolled; no system cache reset",
+  "output_drive": "C:"
+}

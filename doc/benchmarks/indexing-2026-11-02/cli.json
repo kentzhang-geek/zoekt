@@ -1,0 +1,7 @@
+{
+  "ExitCode": 0,
+  "Seconds": 132.6401614,
+  "Binary": "cmd/zoekt-index/zoekt-index.exe",
+  "Config": "UE",
+  "Parallelism": 64
+}

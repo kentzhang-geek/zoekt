@@ -1,0 +1,3 @@
+{"cpus":20,"go":"go1.25.5","gomaxprocs":20,"mode":"verify"}
+{"files":168033,"name_language_content_sha256":"3e6cd1cbf2656093ee800ec8ba9558b5b45dd5a177ec3673df1abe94402b7ada","root":"C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\baseline-c-repeat"}
+{"files":168033,"name_language_content_sha256":"3e6cd1cbf2656093ee800ec8ba9558b5b45dd5a177ec3673df1abe94402b7ada","root":"C:\\Users\\64223\\.codex\\visualizations\\2026\\11\\02\\01a19a51-b794-7bb0-9afe-49bdda626102\\ue-index-benchmark\\optimized-c"}

@@ -1,0 +1,94 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/sourcegraph/zoekt"
+	"github.com/sourcegraph/zoekt/index"
+	"github.com/sourcegraph/zoekt/query"
+)
+
+func main() {
+	if len(os.Args) != 3 {
+		log.Fatal("expected baseline and optimized index directories")
+	}
+	queries := []string{
+		`file:^Source/Runtime/Core/Public/`,
+		`file:^Source/Runtime/CoreUObject/ UObject`,
+		`file:^Source/Runtime/CoreUObject/ case:yes UObject`,
+		`file:^Source/Runtime/Core/ FName`,
+		`file:^Source/Runtime/Core/ content:F(Name|String)`,
+		`file:^Source/Runtime/CoreUObject/ UPROPERTY or file:^Shaders/ IMPLEMENT_GLOBAL_SHADER`,
+		`file:^Source/Runtime/Core/ FName FString`,
+	}
+	left, err := filepath.Glob(filepath.Join(os.Args[1], "*.zoekt"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	right, err := filepath.Glob(filepath.Join(os.Args[2], "*.zoekt"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(left) == 0 || len(left) != len(right) {
+		log.Fatal("different shard counts")
+	}
+	search := func(path string, q query.Q) ([]byte, int) {
+		f, err := os.Open(path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		inf, err := index.NewIndexFile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		s, err := index.NewSearcher(inf)
+		if err != nil {
+			inf.Close()
+			log.Fatal(err)
+		}
+		defer s.Close()
+		r, err := s.Search(context.Background(), q, &zoekt.SearchOptions{ShardMaxMatchCount: 10000000, TotalMaxMatchCount: 10000000})
+		if err != nil {
+			log.Fatal(err)
+		}
+		if r.Stats.FilesSkipped != 0 || r.Stats.ShardsSkipped != 0 || r.Stats.Crashes != 0 {
+			log.Fatal("incomplete result")
+		}
+		// Result byte slices can refer to the mapped shard. Serialize before Close.
+		data, err := json.Marshal(r.Files)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return data, len(r.Files)
+	}
+	for _, raw := range queries {
+		q, err := query.Parse(raw)
+		if err != nil {
+			log.Fatal(err)
+		}
+		h := sha256.New()
+		count := 0
+		for i := range left {
+			a, n := search(left[i], q)
+			b, m := search(right[i], q)
+			if n != m || !bytes.Equal(a, b) {
+				log.Fatalf("result/score/order/offset mismatch for %s in shard %d", raw, i)
+			}
+			h.Write(a)
+			count += n
+		}
+		if count == 0 {
+			log.Fatalf("query unexpectedly had no matches: %s", raw)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"query": raw, "files": count, "equal": true, "sha256": fmt.Sprintf("%x", h.Sum(nil))}); err != nil {
+			log.Fatal(err)
+		}
+	}
+}

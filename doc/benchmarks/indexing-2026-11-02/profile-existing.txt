@@ -1,0 +1,67 @@
+File: probe-v2.exe
+Build ID: D:\Code\zoekt\.tmp-index-study\probe-v2.exe2026-11-01 20:44:22.8958299 -0700 BCDT
+Type: cpu
+Time: 2026-11-01 20:44:30 BCDT
+Duration: 132.71s, Total samples = 343.05s (258.50%)
+Active filters:
+   tagfocus=stage=existing
+Showing nodes accounting for 306.06s, 89.22% of 343.05s total
+Dropped 385 nodes (cum <= 1.72s)
+Showing top 20 nodes out of 111
+      flat  flat%   sum%        cum   cum%
+    40.66s 11.85% 11.85%     44.30s 12.91%  regexp.(*machine).add
+    35.17s 10.25% 22.10%     35.37s 10.31%  runtime.cgocall
+    29.91s  8.72% 30.82%     29.91s  8.72%  internal/runtime/maps.h2 (inline)
+    28.08s  8.19% 39.01%     70.90s 20.67%  runtime.mapassign_fast64
+    27.55s  8.03% 47.04%    178.80s 52.12%  github.com/sourcegraph/zoekt/index.(*postingsBuilder).newSearchableString
+    26.20s  7.64% 54.68%     26.20s  7.64%  internal/runtime/maps.ctrlGroup.matchH2 (inline)
+    24.44s  7.12% 61.80%     24.44s  7.12%  runtime.memmove
+    15.46s  4.51% 66.31%     59.50s 17.34%  runtime.mapaccess1_fast64
+    13.82s  4.03% 70.34%     24.38s  7.11%  regexp.(*Regexp).tryBacktrack
+    12.46s  3.63% 73.97%     22.43s  6.54%  regexp.(*machine).step
+    10.37s  3.02% 76.99%     10.37s  3.02%  runtime.memhash64
+     7.85s  2.29% 79.28%      7.85s  2.29%  internal/runtime/maps.h1 (inline)
+     6.79s  1.98% 81.26%      6.80s  1.98%  unicode/utf8.DecodeRune
+     5.78s  1.68% 82.94%     66.30s 19.33%  regexp.(*machine).match
+     5.09s  1.48% 84.43%      5.09s  1.48%  regexp.(*bitState).shouldVisit (inline)
+     4.16s  1.21% 85.64%     23.34s  6.80%  github.com/sourcegraph/zoekt/index.(*DocChecker).Check
+     4.10s  1.20% 86.84%      4.10s  1.20%  internal/runtime/maps.(*Map).directoryIndex (inline)
+     3.66s  1.07% 87.90%      3.66s  1.07%  encoding/binary.PutUvarint (inline)
+     2.28s  0.66% 88.57%      2.28s  0.66%  regexp.lazyFlag.match
+     2.23s  0.65% 89.22%      2.23s  0.65%  runtime.memclrNoHeapPointers
+File: probe-v2.exe
+Build ID: D:\Code\zoekt\.tmp-index-study\probe-v2.exe2026-11-01 20:44:22.8958299 -0700 BCDT
+Type: cpu
+Time: 2026-11-01 20:44:30 BCDT
+Duration: 132.71s, Total samples = 343.05s (258.50%)
+Active filters:
+   tagfocus=stage=existing
+Showing nodes accounting for 117.98s, 34.39% of 343.05s total
+Dropped 385 nodes (cum <= 1.72s)
+Showing top 25 nodes out of 111
+      flat  flat%   sum%        cum   cum%
+     0.04s 0.012% 0.012%    283.92s 82.76%  github.com/sourcegraph/zoekt/index.(*Builder).buildShard
+         0     0% 0.012%    283.92s 82.76%  github.com/sourcegraph/zoekt/index.(*Builder).flush.func1
+     0.14s 0.041% 0.052%    261.40s 76.20%  github.com/sourcegraph/zoekt/index.(*ShardBuilder).Add
+    27.55s  8.03%  8.08%    178.80s 52.12%  github.com/sourcegraph/zoekt/index.(*postingsBuilder).newSearchableString
+     0.17s  0.05%  8.13%     94.67s 27.60%  regexp.(*Regexp).doExecute
+         0     0%  8.13%     92.34s 26.92%  regexp.(*Regexp).doMatch (inline)
+    28.08s  8.19% 16.32%     70.90s 20.67%  runtime.mapassign_fast64
+     5.78s  1.68% 18.00%     66.30s 19.33%  regexp.(*machine).match
+         0     0% 18.00%     62.90s 18.34%  github.com/sourcegraph/zoekt/index.DetermineLanguageIfUnknown
+         0     0% 18.00%     62.90s 18.34%  github.com/sourcegraph/zoekt/languages.GetLanguages
+         0     0% 18.00%     62.90s 18.34%  github.com/sourcegraph/zoekt/languages.GetLanguagesFromContent (inline)
+     0.02s 0.0058% 18.01%     62.86s 18.32%  github.com/sourcegraph/zoekt/languages.GetLanguages.func1 (inline)
+         0     0% 18.01%     60.02s 17.50%  github.com/sourcegraph/zoekt/languages.getLanguagesByContent
+     0.02s 0.0058% 18.01%     59.99s 17.49%  github.com/go-enry/go-enry/v2/data.Heuristics.Match
+         0     0% 18.01%     59.93s 17.47%  regexp.(*Regexp).Match
+         0     0% 18.01%     59.84s 17.44%  github.com/go-enry/go-enry/v2/data/rule.or.Match
+    15.46s  4.51% 22.52%     59.50s 17.34%  runtime.mapaccess1_fast64
+         0     0% 22.52%     58.55s 17.07%  main.main
+     0.06s 0.017% 22.54%     58.55s 17.07%  main.main.func8
+         0     0% 22.54%     58.55s 17.07%  main.main.func9
+         0     0% 22.54%     58.55s 17.07%  main.measure
+         0     0% 22.54%     58.55s 17.07%  main.measure.func1
+         0     0% 22.54%     58.55s 17.07%  runtime.main
+         0     0% 22.54%     58.55s 17.07%  runtime/pprof.Do
+    40.66s 11.85% 34.39%     44.30s 12.91%  regexp.(*machine).add

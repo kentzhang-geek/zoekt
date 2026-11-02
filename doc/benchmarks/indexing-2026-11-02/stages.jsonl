@@ -1,0 +1,7 @@
+{"cpus":20,"go":"go1.25.5","gomaxprocs":20,"mode":"stages"}
+{"config_parallelism":64,"roots":["D:\\Code\\UnrealEngine\\Engine\\Source","D:\\Code\\UnrealEngine\\Engine\\Shaders","D:\\Code\\UnrealEngine\\Engine\\Extras","D:\\Code\\UnrealEngine\\Engine\\Programs","D:\\Code\\UnrealEngine\\Engine\\Plugins"]}
+{"bytes":1924256751,"dirs":32929,"entries":249330,"files":168033,"over_2mib":24}
+{"average_cores":1.0457489099965251,"cpu_s":5.984375,"stage":"walkdir","wall_s":5.7225735}
+{"average_cores":1.067582124401703,"cpu_s":59.9375,"stage":"read_check_1","wall_s":56.1432218}
+{"average_cores":4.080997362134834,"cpu_s":62.421875,"stage":"read_check_4","wall_s":15.2957401}
+{"average_cores":11.743681789878167,"cpu_s":90.640625,"stage":"read_check_20","wall_s":7.718246}

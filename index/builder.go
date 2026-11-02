@@ -18,6 +18,7 @@ package index
 
 import (
 	"crypto/sha1"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -594,11 +595,31 @@ func (b *Builder) AddFile(name string, content []byte) error {
 }
 
 func (b *Builder) Add(doc Document) error {
-	doc.Name = filepath.ToSlash(doc.Name)
-	doc.SubRepositoryPath = filepath.ToSlash(doc.SubRepositoryPath)
 	if b.finishCalled {
 		return nil
 	}
+	return b.addPrepared(b.prepareDocument(doc, &b.docChecker))
+}
+
+// PreparedDocument holds a checked document belonging to one Builder. Its content
+// must not be modified between PrepareDocument and AddPrepared.
+type PreparedDocument struct {
+	doc     Document
+	builder *Builder
+}
+
+// PrepareDocument checks a document and detects its language without modifying
+// the Builder. It may run concurrently with other preparation and Add calls,
+// provided each worker owns its checker and document. The checker must be non-nil.
+func (b *Builder) PrepareDocument(doc Document, checker *DocChecker) PreparedDocument {
+	doc = b.prepareDocument(doc, checker)
+	DetermineLanguageIfUnknown(&doc)
+	return PreparedDocument{doc: doc, builder: b}
+}
+
+func (b *Builder) prepareDocument(doc Document, checker *DocChecker) Document {
+	doc.Name = filepath.ToSlash(doc.Name)
+	doc.SubRepositoryPath = filepath.ToSlash(doc.SubRepositoryPath)
 
 	allowLargeFile := b.opts.IgnoreSizeMax(doc.Name)
 	if len(doc.Content) > b.opts.SizeMax && !allowLargeFile {
@@ -607,10 +628,28 @@ func (b *Builder) Add(doc Document) error {
 		// files, the corresponding shard would be mostly empty, so
 		// insert a reason here too.
 		doc.SkipReason = SkipReasonTooLarge
-	} else if skip := b.docChecker.Check(doc.Content, b.opts.TrigramMax, allowLargeFile); skip != SkipReasonNone {
+	} else if skip := checker.Check(doc.Content, b.opts.TrigramMax, allowLargeFile); skip != SkipReasonNone {
 		doc.SkipReason = skip
 	}
+	if doc.SkipReason != SkipReasonNone {
+		doc.Content = nil
+	}
+	return doc
+}
 
+// AddPrepared adds a document prepared by this Builder without repeating its
+// content check. Like Add, it must be called by a single coordinating goroutine.
+func (b *Builder) AddPrepared(prepared PreparedDocument) error {
+	if prepared.builder != b {
+		return errors.New("prepared document belongs to a different builder")
+	}
+	if b.finishCalled {
+		return nil
+	}
+	return b.addPrepared(prepared.doc)
+}
+
+func (b *Builder) addPrepared(doc Document) error {
 	b.todo = append(b.todo, &doc)
 
 	if doc.SkipReason == SkipReasonNone {
@@ -629,6 +668,29 @@ func (b *Builder) Add(doc Document) error {
 	return nil
 }
 
+// Abort waits for active shard builds and removes their temporary files without
+// publishing an incomplete repository. It is a no-op after Finish or Abort, and
+// must not be called concurrently with Add, AddPrepared, or Finish.
+func (b *Builder) Abort() error {
+	if b.finishCalled {
+		return nil
+	}
+	b.finishCalled = true
+	b.todo = nil
+	b.building.Wait()
+	var err error
+	for tmp := range b.finishedShards {
+		if removeErr := os.Remove(tmp); removeErr != nil && !os.IsNotExist(removeErr) {
+			err = errors.Join(err, removeErr)
+		}
+	}
+	b.finishedShards = map[string]string{}
+	if b.buildError == nil {
+		b.buildError = errors.New("index build aborted")
+	}
+	return err
+}
+
 // MarkFileAsChangedOrRemoved indicates that the file specified by the given path
 // has been changed or removed since the last indexing job for this repository.
 //
@@ -638,8 +700,8 @@ func (b *Builder) MarkFileAsChangedOrRemoved(path string) {
 }
 
 // Finish creates a last shard from the buffered documents, and clears
-// stale shards from previous runs. This should always be called, also
-// in failure cases, to ensure cleanup.
+// stale shards from previous runs. Use Abort instead if input collection fails,
+// so incomplete input cannot replace the previous repository.
 //
 // It is safe to call Finish() multiple times.
 func (b *Builder) Finish() error {
@@ -946,6 +1008,7 @@ func sortDocuments(todo []*Document) {
 }
 
 func (b *Builder) buildShard(todo []*Document, nextShardNum int) (*finishedShard, error) {
+	start := time.Now()
 	if !b.opts.DisableCTags && (b.opts.CTagsPath != "" || b.opts.ScipCTagsPath != "") {
 		err := parseSymbols(todo, b.opts.LanguageMap, b.parserBins)
 		if b.opts.CTagsMustSucceed && err != nil {
@@ -957,6 +1020,7 @@ func (b *Builder) buildShard(todo []*Document, nextShardNum int) (*finishedShard
 	}
 
 	name := b.opts.shardName(nextShardNum)
+	symbolsDone := time.Now()
 
 	shardBuilder, err := b.newShardBuilder()
 	if err != nil {
@@ -964,6 +1028,7 @@ func (b *Builder) buildShard(todo []*Document, nextShardNum int) (*finishedShard
 	}
 
 	sortDocuments(todo)
+	sortDone := time.Now()
 
 	for idx, t := range todo {
 		if err := shardBuilder.Add(*t); err != nil {
@@ -975,7 +1040,13 @@ func (b *Builder) buildShard(todo []*Document, nextShardNum int) (*finishedShard
 		}
 	}
 
-	return b.writeShard(name, shardBuilder)
+	postingsDone := time.Now()
+	done, err := b.writeShard(name, shardBuilder)
+	log.Printf("shard timing %s: symbols=%s sort=%s postings=%s write=%s total=%s", name,
+		symbolsDone.Sub(start).Round(time.Millisecond), sortDone.Sub(symbolsDone).Round(time.Millisecond),
+		postingsDone.Sub(sortDone).Round(time.Millisecond), time.Since(postingsDone).Round(time.Millisecond),
+		time.Since(start).Round(time.Millisecond))
+	return done, err
 }
 
 // CheckMemoryUsage checks the memory usage of the process and writes a memory profile if the heap usage exceeds the

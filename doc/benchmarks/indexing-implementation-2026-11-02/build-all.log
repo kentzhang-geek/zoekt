@@ -1,0 +1,8 @@
+go: writing stat cache: open C:\Users\64223\go\pkg\mod\cache\download\github.com\sourcegraph\zoekt\@v\v0.0.0-20261102032729-9a66d70d19ef.info513953685.tmp: Access is denied.
+# github.com/sourcegraph/zoekt/cmd/zoekt-sourcegraph-indexserver
+cmd\zoekt-sourcegraph-indexserver\main.go:302:39: undefined: unix.SIGQUIT
+cmd\zoekt-sourcegraph-indexserver\main.go:386:43: undefined: unix.SIGUSR1
+cmd\zoekt-sourcegraph-indexserver\main.go:433:59: undefined: unix.SIGUSR1
+cmd\zoekt-sourcegraph-indexserver\main.go:441:58: undefined: unix.SIGUSR1
+cmd\zoekt-sourcegraph-indexserver\meta.go:117:27: undefined: unix.Umask
+cmd\zoekt-sourcegraph-indexserver\meta.go:118:7: undefined: unix.Umask

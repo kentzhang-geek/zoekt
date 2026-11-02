@@ -1,0 +1,12 @@
+ok  	github.com/sourcegraph/zoekt/cmd/zoekt-index	0.934s
+ok  	github.com/sourcegraph/zoekt/index	14.196s
+ok  	github.com/sourcegraph/zoekt/languages	0.245s
+ok  	github.com/sourcegraph/zoekt/search	0.613s
+--- FAIL: TestTruncateLine (0.05s)
+    e2e_test.go:896: got 20kb response, want <= 10kb
+FAIL
+FAIL	github.com/sourcegraph/zoekt/web	0.412s
+ok  	github.com/sourcegraph/zoekt/cmd/zoekt-webserver	0.386s
+ok  	github.com/sourcegraph/zoekt/cmd/zoekt-webserver/grpc/server	0.647s
+ok  	github.com/sourcegraph/zoekt/grpc/chunk	3.952s
+FAIL

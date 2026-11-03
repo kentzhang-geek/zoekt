@@ -25,7 +25,8 @@ const (
 	mcpContentTypeSSE         = "text/event-stream"
 )
 
-const mcpSearchDescription = `Search indexed source code using the native Zoekt query language. Prefer precise regular expressions.
+const mcpSearchDescription = `Search indexed source code using the native Zoekt query language. Prefer search for routine filename and content searches; use search_raw when you need file-level Boolean combinations or native filters not exposed by search.
+Use known repository/path constraints and distinctive content patterns together to reduce irrelevant results. For example, if the target is known to be in test-related paths and contain test followed by characters and 0001, file:test content:test.+0001 is more selective than bare test; add an exact repository filter when known. Here .+ requires at least one character and does not cross newlines. Prefer accurate constraints, not regex complexity: do not guess filters that could exclude the target, and refine broad discovery searches using the evidence returned.
 
 Repository and path filters:
 - Use list_repos to discover repository names. repo:<regex> (alias r:) matches repository names; anchor and escape the name for an exact match, e.g. r:^zoekt$.
@@ -262,7 +263,7 @@ func (h *mcpHandler) handleInitialize(req mcpRequest) (mcpResponse, bool) {
 			"name":    h.serverName,
 			"version": h.serverVersion,
 		},
-		"instructions": "Use list_repos for exact repository names. Use search with a regex pattern, repos and optional path_regex: files searches paths, snippets searches content with context. It defaults to case-insensitive matching. Paths use / and are relative to the index root. Use search_raw for native Zoekt query/prefix syntax and file-level Boolean combinations; it retains native case:auto and text-prefix semantics. Check completion and truncation status before concluding a result is absent.",
+		"instructions": "Use search by default for routine filename and content searches. Use list_repos for exact repository names. Combine distinctive regex patterns with known repos and path_regex constraints to reduce irrelevant results; do not invent restrictive filters. In search, files searches paths and snippets searches content with context. It defaults to case-insensitive matching. Paths use / and are relative to the index root. Use search_raw when you need file-level Boolean combinations or native filters not exposed by search; it retains native case:auto and text-prefix semantics. Check completion and truncation status before concluding a result is absent.",
 	}), true
 }
 
